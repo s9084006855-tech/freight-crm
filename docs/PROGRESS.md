@@ -1,6 +1,6 @@
 # Build Progress
 
-Last updated: 2026-05-13
+Last updated: 2026-05-13 (commit 7c6f62e)
 
 ## Legend
 - `[x]` Done
@@ -50,86 +50,86 @@ Last updated: 2026-05-13
 - [x] `src/lib/phone.ts` — normalize, format, validate, match
 - [x] `src/lib/dedup.ts` — Levenshtein, nameSimilarity, findDuplicate, classifyRow
 - [x] `src/lib/errors.ts` — logError, logWarn, humanError
-- [ ] `src/lib/import-parse.ts` — CSV/XLSX parsing (PapaParse + SheetJS)
-- [ ] `src/lib/paste-parse.ts` — regex extraction from unstructured text
+- [x] `src/lib/import-parse.ts` — CSV/XLSX parsing (PapaParse + SheetJS)
+- [x] `src/lib/paste-parse.ts` — regex extraction from unstructured text
 
 ### State (Zustand)
-- [ ] `src/store/contacts.ts`
-- [ ] `src/store/ui.ts`
-- [ ] `src/store/sync.ts`
+- [x] `src/store/contacts.ts`
+- [x] `src/store/ui.ts`
+- [x] `src/store/sync.ts`
 
 ### Hooks
-- [ ] `src/hooks/useKeyboard.ts`
-- [ ] `src/hooks/useToast.ts`
-- [ ] `src/hooks/useContacts.ts`
-- [ ] `src/hooks/useActivities.ts`
-- [ ] `src/hooks/useSync.ts`
+- [x] `src/hooks/useKeyboard.ts`
+- [x] `src/hooks/useToast.ts`
+- [x] `src/hooks/useContacts.ts`
+- [x] `src/hooks/useActivities.ts`
+- [x] `src/hooks/useSync.ts`
 
 ---
 
 ## Phase 3 — UI Components
 
 ### Common
-- [ ] `src/components/common/ErrorBoundary.tsx`
-- [ ] `src/components/common/Toast.tsx`
-- [ ] `src/components/common/Modal.tsx`
-- [ ] `src/components/common/SyncDot.tsx`
-- [ ] `src/components/common/StartupCheck.tsx`
+- [x] `src/components/common/ErrorBoundary.tsx`
+- [x] `src/components/common/Toast.tsx`
+- [x] `src/components/common/Modal.tsx`
+- [x] `src/components/common/SyncDot.tsx`
+- [x] `src/components/common/StartupCheck.tsx`
 
 ### Layout
-- [ ] `src/components/layout/AppShell.tsx`
-- [ ] `src/components/layout/Sidebar.tsx`
-- [ ] `src/components/layout/StatusBar.tsx`
-- [ ] `src/components/layout/CommandPalette.tsx`
+- [x] `src/components/layout/AppShell.tsx`
+- [x] `src/components/layout/Sidebar.tsx`
+- [x] `src/components/layout/StatusBar.tsx`
+- [x] `src/components/layout/CommandPalette.tsx`
 
 ### Contacts
-- [ ] `src/components/contacts/ContactList.tsx`
-- [ ] `src/components/contacts/ContactRow.tsx`
-- [ ] `src/components/contacts/ContactDetail.tsx`
-- [ ] `src/components/contacts/ContactForm.tsx`
-- [ ] `src/components/contacts/ContactFilters.tsx`
+- [x] `src/components/contacts/ContactList.tsx`
+- [x] `src/components/contacts/ContactRow.tsx`
+- [x] `src/components/contacts/ContactDetail.tsx`
+- [x] `src/components/contacts/ContactForm.tsx`
+- [x] `src/components/contacts/ContactFilters.tsx`
 
 ### Activities
-- [ ] `src/components/activities/QuickCallModal.tsx`
-- [ ] `src/components/activities/ActivityFeed.tsx`
+- [x] `src/components/activities/QuickCallModal.tsx`
+- [x] `src/components/activities/ActivityFeed.tsx`
 
 ### Dashboard
-- [ ] `src/components/dashboard/StatsRow.tsx`
-- [ ] `src/components/dashboard/FollowUpQueue.tsx`
-- [ ] `src/components/dashboard/USHeatmap.tsx`
+- [x] `src/components/dashboard/StatsRow.tsx`
+- [x] `src/components/dashboard/FollowUpQueue.tsx`
+- [x] `src/components/dashboard/USHeatmap.tsx`
 
 ### Import
-- [ ] `src/components/import/ImportHub.tsx`
-- [ ] `src/components/import/DropZone.tsx`
-- [ ] `src/components/import/ColumnMapper.tsx`
-- [ ] `src/components/import/ImportReview.tsx`
-- [ ] `src/components/import/MergeDialog.tsx`
-- [ ] `src/components/import/ImportHistory.tsx`
-- [ ] `src/components/import/PasteParser.tsx`
-- [ ] `src/components/import/ImageOCR.tsx`
-- [ ] `src/components/import/QuickAddForm.tsx`
+- [x] `src/components/import/ImportHub.tsx`
+- [x] `src/components/import/DropZone.tsx`
+- [x] `src/components/import/ColumnMapper.tsx`
+- [x] `src/components/import/ImportReview.tsx`
+- [x] `src/components/import/MergeDialog.tsx`
+- [x] `src/components/import/ImportHistory.tsx`
+- [x] `src/components/import/PasteParser.tsx`
+- [x] `src/components/import/ImageOCR.tsx`
+- [x] `src/components/import/QuickAddForm.tsx`
 
 ### Diagnostics
-- [ ] `src/components/diagnostics/DiagnosticsPanel.tsx`
+- [x] `src/components/diagnostics/DiagnosticsPanel.tsx`
 
 ---
 
 ## Phase 4 — Views & Routing
 
-- [ ] `src/views/DashboardView.tsx`
-- [ ] `src/views/ContactsView.tsx`
-- [ ] `src/views/ContactDetailView.tsx`
-- [ ] `src/views/ImportView.tsx`
-- [ ] `src/views/SettingsView.tsx`
-- [ ] `src/App.tsx` — router + global keyboard shortcuts
+- [x] `src/views/DashboardView.tsx`
+- [x] `src/views/ContactsView.tsx`
+- [x] `src/views/ContactDetailView.tsx`
+- [x] `src/views/ImportView.tsx`
+- [x] `src/views/SettingsView.tsx`
+- [x] `src/App.tsx` — router + global keyboard shortcuts
 
 ---
 
 ## Phase 5 — Build Verification
 
-- [ ] `cargo check` passes clean
-- [ ] `npm run build` passes clean
-- [ ] Auto-fix loop completed (up to 5× per error)
+- [x] `cargo check` passes clean
+- [x] `npm run build` passes clean
+- [x] Auto-fix loop completed (up to 5× per error)
 - [ ] App launches on Mac mini
 - [ ] App launches on MacBook Air
 - [ ] iCloud sync tested between two machines
@@ -145,7 +145,7 @@ Last updated: 2026-05-13
 - [x] `docs/BUILD_PLAN.md`
 - [x] `docs/WRITING_RULES.md`
 - [x] `docs/PROGRESS.md` (this file)
-- [ ] `README.md` — update/fix workflow
+- [x] `README.md` — update/fix workflow
 
 ---
 
@@ -160,4 +160,5 @@ _None currently._
 | Commit | Description |
 |--------|-------------|
 | (initial) | Project scaffold |
-| docs: persistent build spec | BUILD_PLAN.md, WRITING_RULES.md, PROGRESS.md |
+| da57d86 docs: persistent build spec | BUILD_PLAN.md, WRITING_RULES.md, PROGRESS.md |
+| 7c6f62e feat: complete frontend + fix all build errors | All React components, views, stores, hooks; cargo check + npm build clean |
