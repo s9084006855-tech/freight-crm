@@ -12,6 +12,16 @@ dist
 dist-ssr
 *.local
 
+# Bundled binaries (regenerate with scripts/bundle_tesseract.sh)
+src-tauri/resources/tesseract/lib/
+src-tauri/resources/tesseract/tessdata/
+src-tauri/resources/tesseract/tesseract
+src-tauri/resources/tesseract/test_asset.png
+src-tauri/resources/vision_ocr
+
+# Tauri build output
+src-tauri/target/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
