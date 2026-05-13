@@ -2,7 +2,7 @@ use crate::{AppInfo, AppState, ErrorEntry};
 use crate::commands::conn_err;
 use rusqlite::params;
 use std::collections::HashMap;
-use tauri::State;
+use tauri::{Manager, State};
 
 #[tauri::command]
 pub fn run_integrity_check(state: State<'_, AppState>) -> Result<String, String> {
@@ -14,9 +14,8 @@ pub fn run_integrity_check(state: State<'_, AppState>) -> Result<String, String>
         .map_err(|e| e.to_string())?;
     let results: Vec<String> = stmt
         .query_map([], |r| r.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| e.to_string())?;
 
     Ok(results.join("\n"))
 }
@@ -55,8 +54,7 @@ pub fn get_error_log(
             created_at: row.get(5)?,
         })
     })
-    .map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
+    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
     .map_err(|e| e.to_string())
 }
 

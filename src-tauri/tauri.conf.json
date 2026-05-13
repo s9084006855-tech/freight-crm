@@ -43,7 +43,6 @@
     "macOS": {
       "entitlements": "entitlements.plist",
       "signingIdentity": null,
-      "dmgBackground": null,
       "minimumSystemVersion": "10.15"
     }
   }

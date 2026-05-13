@@ -1,51 +1,67 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { AppShell } from "./components/layout/AppShell";
+import { StartupCheck } from "./components/common/StartupCheck";
+import { DiagnosticsPanel } from "./components/diagnostics/DiagnosticsPanel";
+import { QuickCallModal } from "./components/activities/QuickCallModal";
+import { DashboardView } from "./views/DashboardView";
+import { ContactsView } from "./views/ContactsView";
+import { ContactDetailView } from "./views/ContactDetailView";
+import { ImportView } from "./views/ImportView";
+import { SettingsView } from "./views/SettingsView";
+import { useUIStore } from "./store/ui";
+import { useContactsStore } from "./store/contacts";
+import { useSync } from "./hooks/useSync";
+import { useGlobalKeyboard } from "./hooks/useKeyboard";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
-
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+function Views() {
+  const view = useUIStore((s) => s.activeView);
+  switch (view) {
+    case "dashboard": return <DashboardView />;
+    case "contacts": return <ContactsView />;
+    case "contact-detail": return <ContactDetailView />;
+    case "import": return <ImportView />;
+    case "settings": return <SettingsView />;
+    default: return <DashboardView />;
   }
-
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
 }
 
-export default App;
+function GlobalShortcuts() {
+  const setView = useUIStore((s) => s.setView);
+  const openCommandPalette = useUIStore((s) => s.openCommandPalette);
+  const openDiagnostics = useUIStore((s) => s.openDiagnostics);
+  const openQuickCall = useUIStore((s) => s.openQuickCall);
+  const selected = useContactsStore((s) => s.selected);
+
+  useGlobalKeyboard("k", openCommandPalette, { meta: true }, []);
+  useGlobalKeyboard("1", () => setView("dashboard"), { meta: true }, []);
+  useGlobalKeyboard("2", () => setView("contacts"), { meta: true }, []);
+  useGlobalKeyboard("3", () => setView("import"), { meta: true }, []);
+  useGlobalKeyboard(",", () => setView("settings"), { meta: true }, []);
+  useGlobalKeyboard("D", openDiagnostics, { meta: true, shift: true }, []);
+  useGlobalKeyboard(
+    "c",
+    () => { if (selected) openQuickCall(selected.id); },
+    {},
+    [selected]
+  );
+
+  return null;
+}
+
+function SyncPoller() {
+  useSync(30_000);
+  return null;
+}
+
+export default function App() {
+  return (
+    <StartupCheck>
+      <AppShell>
+        <Views />
+        <DiagnosticsPanel />
+        <QuickCallModal />
+        <GlobalShortcuts />
+        <SyncPoller />
+      </AppShell>
+    </StartupCheck>
+  );
+}

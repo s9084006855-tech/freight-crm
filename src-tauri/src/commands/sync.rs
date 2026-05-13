@@ -170,7 +170,7 @@ fn backup_db(db_path: &str) -> Result<(), String> {
     std::fs::copy(db_path, &backup_path).map_err(|e| e.to_string())?;
 
     // Keep only last 10 backups
-    if let Ok(mut entries) = std::fs::read_dir(&backup_dir) {
+    if let Ok(entries) = std::fs::read_dir(&backup_dir) {
         let mut files: Vec<_> = entries
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().map(|x| x == "sqlite").unwrap_or(false))

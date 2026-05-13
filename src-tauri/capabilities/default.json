@@ -15,10 +15,10 @@
     "fs:allow-read-file",
     "fs:allow-write-file",
     "fs:allow-exists",
-    "fs:allow-create-dir",
-    "fs:allow-remove-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
     "fs:allow-copy-file",
     "fs:allow-read-dir",
-    "fs:allow-metadata"
+    "fs:allow-stat"
   ]
 }

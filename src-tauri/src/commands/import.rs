@@ -227,49 +227,55 @@ fn apply_merge(
 
 #[tauri::command]
 pub fn rollback_import(state: State<'_, AppState>, session_id: i64) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+    // Scope all DB work so the MutexGuard is released before touch_sync re-acquires it
+    (|| -> Result<(), String> {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.as_ref().ok_or_else(conn_err)?;
 
-    // Get all actions for this session
-    let mut stmt = conn
-        .prepare(
-            "SELECT contact_id, action, previous_data
-             FROM import_session_contacts WHERE session_id = ?1",
+        let entries: Vec<(i64, String, Option<String>)> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT contact_id, action, previous_data
+                     FROM import_session_contacts WHERE session_id = ?1",
+                )
+                .map_err(|e| e.to_string())?;
+            stmt.query_map(params![session_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+            .map_err(|e| e.to_string())?
+        }; // stmt dropped here
+
+        for (contact_id, action, prev_data) in entries {
+            match action.as_str() {
+                "added" => {
+                    conn.execute("DELETE FROM contacts WHERE id = ?1", params![contact_id]).ok();
+                }
+                "merged" => {
+                    if let Some(json) = prev_data {
+                        if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&json) {
+                            restore_contact_from_snapshot(conn, contact_id, &map).ok();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        conn.execute(
+            "UPDATE import_sessions SET status='rolled_back' WHERE id=?1",
+            params![session_id],
         )
         .map_err(|e| e.to_string())?;
 
-    let entries: Vec<(i64, String, Option<String>)> = stmt
-        .query_map(params![session_id], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        Ok(())
+        // db (MutexGuard) and conn released here
+    })()?;
 
-    for (contact_id, action, prev_data) in entries {
-        match action.as_str() {
-            "added" => {
-                conn.execute("DELETE FROM contacts WHERE id = ?1", params![contact_id])
-                    .ok();
-            }
-            "merged" => {
-                if let Some(json) = prev_data {
-                    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&json) {
-                        restore_contact_from_snapshot(conn, contact_id, &map).ok();
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    conn.execute(
-        "UPDATE import_sessions SET status='rolled_back' WHERE id=?1",
-        params![session_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    drop(db);
     state.touch_sync();
     Ok(())
 }
@@ -328,8 +334,7 @@ pub fn get_import_sessions(state: State<'_, AppState>) -> Result<Vec<ImportSessi
             notes: row.get(9)?,
         })
     })
-    .map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
+    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
     .map_err(|e| e.to_string())
 }
 
@@ -362,8 +367,7 @@ pub fn get_mapping_templates(state: State<'_, AppState>) -> Result<Vec<MappingTe
             last_used_at: row.get(7)?,
         })
     })
-    .map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
+    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
     .map_err(|e| e.to_string())
 }
 

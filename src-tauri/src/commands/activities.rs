@@ -95,8 +95,7 @@ pub fn get_activities(
             created_at: row.get(8)?,
         })
     })
-    .map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
+    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
     .map_err(|e| e.to_string())
 }
 
@@ -132,8 +131,7 @@ pub fn get_follow_ups(state: State<'_, AppState>) -> Result<Vec<FollowUpItem>, S
             overdue: follow_up_at < now,
         })
     })
-    .map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
+    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
     .map_err(|e| e.to_string())
 }
 
@@ -212,9 +210,8 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats,
                 count: row.get(1)?,
             })
         })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        .map_err(|e| e.to_string())?;
 
     let mut act_stmt = conn
         .prepare(
@@ -238,9 +235,8 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats,
                 created_at: row.get(8)?,
             })
         })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+        .map_err(|e| e.to_string())?;
 
     Ok(DashboardStats {
         total_contacts,

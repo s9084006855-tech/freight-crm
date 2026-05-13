@@ -181,6 +181,12 @@ export interface ImportAction {
   merge_fields?: Record<string, boolean>;
 }
 
+export interface ImportResult {
+  added: number;
+  merged: number;
+  discarded: number;
+}
+
 export interface MappingTemplate {
   id: number;
   name: string;
