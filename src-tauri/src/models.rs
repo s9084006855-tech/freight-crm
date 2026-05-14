@@ -122,6 +122,7 @@ pub struct Activity {
     pub follow_up_at: Option<i64>,
     pub follow_up_done: bool,
     pub created_at: i64,
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -132,6 +133,7 @@ pub struct CreateActivityData {
     pub notes: Option<String>,
     pub duration_sec: Option<i64>,
     pub follow_up_at: Option<i64>,
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -283,6 +285,22 @@ pub struct AppInfo {
     pub device_name: String,
     pub db_path: String,
     pub sync_provider: String,
+}
+
+// ── Enrichment ────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnrichmentResult {
+    pub contact_id: i64,
+    pub company_name: String,
+    pub found_on_importyeti: bool,
+    pub commodities: Vec<String>,
+    pub suppliers: Vec<String>,
+    pub shipment_count: Option<i32>,
+    pub phone_found: Option<String>,
+    pub email_found: Option<String>,
+    pub cold_call_script: String,
+    pub error: Option<String>,
 }
 
 // ── Startup ───────────────────────────────────────────────────────────

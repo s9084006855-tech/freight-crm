@@ -31,6 +31,8 @@ pub fn commit_import(
     let conn = db.as_ref().ok_or_else(conn_err)?;
     let now = chrono::Utc::now().timestamp();
 
+    conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+
     let mut added = 0i64;
     let mut merged = 0i64;
     let mut discarded = 0i64;
@@ -170,6 +172,8 @@ pub fn commit_import(
         params![now, added, merged, discarded, session_id],
     )
     .map_err(|e| e.to_string())?;
+
+    conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
 
     drop(db);
     state.touch_sync();

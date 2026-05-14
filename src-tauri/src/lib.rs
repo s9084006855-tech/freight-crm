@@ -16,6 +16,8 @@ pub struct LocalConfig {
     pub device_name: String,
     pub db_path: String,
     pub last_seen_write_time: i64,
+    #[serde(default)]
+    pub active_user: Option<String>,
 }
 
 pub struct AppState {
@@ -121,6 +123,11 @@ pub fn run() {
             commands::keychain::delete_api_key,
             commands::startup::run_startup_check,
             commands::startup::auto_repair,
+            commands::users::get_users,
+            commands::users::get_active_user,
+            commands::users::set_active_user,
+            commands::enrich::enrich_contact,
+            commands::enrich::enrich_all_contacts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -151,6 +158,7 @@ fn load_or_create_local_config(path: &PathBuf) -> LocalConfig {
         device_name,
         db_path: db_path.to_string_lossy().to_string(),
         last_seen_write_time: 0,
+        active_user: None,
     };
 
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {

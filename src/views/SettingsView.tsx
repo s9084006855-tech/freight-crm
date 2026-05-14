@@ -25,9 +25,16 @@ export function SettingsView() {
   const saveSetting = async (key: string, value: string) => {
     setSaving(key);
     try {
-      await db.updateSetting(key, value);
-      setSettings((s) => ({ ...s, [key]: value }));
-      toast.success("Saved");
+      if (key === "sync_path") {
+        // Switch the DB connection to the new path — don't just save the string
+        await db.initializeDb(value.trim() || undefined);
+        setSettings((s) => ({ ...s, [key]: value }));
+        toast.success("Sync path updated — database moved to new location");
+      } else {
+        await db.updateSetting(key, value);
+        setSettings((s) => ({ ...s, [key]: value }));
+        toast.success("Saved");
+      }
     } catch (e) {
       toast.error(humanError(e));
     } finally {

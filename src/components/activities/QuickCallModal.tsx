@@ -4,10 +4,11 @@ import { useContactsStore } from "../../store/contacts";
 import * as db from "../../lib/db";
 import { useToast } from "../../hooks/useToast";
 import { humanError } from "../../lib/errors";
+import type { UserProfile } from "../../types";
 
 const OUTCOMES = ["Reached", "No answer", "Voicemail", "Not interested", "Callback"];
 
-export function QuickCallModal() {
+export function QuickCallModal({ activeUser }: { activeUser: UserProfile }) {
   const contactId = useUIStore((s) => s.quickCallContactId);
   const close = useUIStore((s) => s.closeQuickCall);
   const contact = useContactsStore((s) => s.selected);
@@ -42,6 +43,7 @@ export function QuickCallModal() {
         outcome,
         notes: notes.trim() || undefined,
         follow_up_at: followUpTs,
+        user_id: activeUser.id,
       });
       await refreshSelected();
       toast.success("Call logged");

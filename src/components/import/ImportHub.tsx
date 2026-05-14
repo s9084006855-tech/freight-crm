@@ -7,6 +7,7 @@ import { ImportHistory } from "./ImportHistory";
 import { PasteParser } from "./PasteParser";
 import { ImageOCR } from "./ImageOCR";
 import { QuickAddForm } from "./QuickAddForm";
+import { EnrichmentPanel } from "./EnrichmentPanel";
 import { parseFile, guessMapping, applyMapping, detectSourceType, type RawRow } from "../../lib/import-parse";
 import { classifyRow } from "../../lib/dedup";
 import * as db from "../../lib/db";
@@ -15,7 +16,7 @@ import { useToast } from "../../hooks/useToast";
 import { humanError } from "../../lib/errors";
 
 type Stage = "hub" | "mapping" | "review" | "history";
-type SourceTab = "file" | "paste" | "image" | "quick";
+type SourceTab = "file" | "paste" | "image" | "quick" | "enrich";
 
 interface FileState {
   file: File;
@@ -216,6 +217,7 @@ export function ImportHub() {
     { id: "paste", label: "Paste text" },
     { id: "image", label: "Image / OCR" },
     { id: "quick", label: "Quick add" },
+    { id: "enrich", label: "✦ Enrich" },
   ];
 
   return (
@@ -246,16 +248,22 @@ export function ImportHub() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        {sourceTab === "file" && (
-          loading
-            ? <p className="text-xs text-zinc-500 font-mono">Processing…</p>
-            : <DropZone onFiles={handleFiles} />
-        )}
-        {sourceTab === "paste" && <PasteParser onParsed={handlePasteParsed} />}
-        {sourceTab === "image" && <ImageOCR onParsed={handleOcrParsed} />}
-        {sourceTab === "quick" && <QuickAddForm />}
-      </div>
+      {sourceTab === "enrich" ? (
+        <div className="flex-1 overflow-hidden">
+          <EnrichmentPanel />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {sourceTab === "file" && (
+            loading
+              ? <p className="text-xs text-zinc-500 font-mono">Processing…</p>
+              : <DropZone onFiles={handleFiles} />
+          )}
+          {sourceTab === "paste" && <PasteParser onParsed={handlePasteParsed} />}
+          {sourceTab === "image" && <ImageOCR onParsed={handleOcrParsed} />}
+          {sourceTab === "quick" && <QuickAddForm />}
+        </div>
+      )}
     </div>
   );
 }

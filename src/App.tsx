@@ -1,5 +1,7 @@
+import { useState, useEffect } from "react";
 import { AppShell } from "./components/layout/AppShell";
 import { StartupCheck } from "./components/common/StartupCheck";
+import { LoginScreen } from "./components/common/LoginScreen";
 import { DiagnosticsPanel } from "./components/diagnostics/DiagnosticsPanel";
 import { QuickCallModal } from "./components/activities/QuickCallModal";
 import { DashboardView } from "./views/DashboardView";
@@ -11,6 +13,8 @@ import { useUIStore } from "./store/ui";
 import { useContactsStore } from "./store/contacts";
 import { useSync } from "./hooks/useSync";
 import { useGlobalKeyboard } from "./hooks/useKeyboard";
+import * as db from "./lib/db";
+import type { UserProfile } from "./types";
 
 function Views() {
   const view = useUIStore((s) => s.activeView);
@@ -53,12 +57,28 @@ function SyncPoller() {
 }
 
 export default function App() {
+  const [activeUser, setActiveUser] = useState<UserProfile | null | undefined>(undefined);
+
+  useEffect(() => {
+    db.getActiveUser()
+      .then((u) => setActiveUser(u))
+      .catch(() => setActiveUser(null));
+  }, []);
+
+  // Still checking stored user
+  if (activeUser === undefined) return null;
+
+  // No user selected — show login
+  if (activeUser === null) {
+    return <LoginScreen onLogin={(u) => setActiveUser(u)} />;
+  }
+
   return (
     <StartupCheck>
-      <AppShell>
+      <AppShell activeUser={activeUser} onSwitchUser={() => setActiveUser(null)}>
         <Views />
         <DiagnosticsPanel />
-        <QuickCallModal />
+        <QuickCallModal activeUser={activeUser} />
         <GlobalShortcuts />
         <SyncPoller />
       </AppShell>

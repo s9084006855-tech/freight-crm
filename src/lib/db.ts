@@ -8,6 +8,7 @@ import type {
   CreateActivityData,
   CreateContactData,
   DashboardStats,
+  EnrichmentResult,
   ErrorEntry,
   FollowUpItem,
   ImportAction,
@@ -19,6 +20,7 @@ import type {
   ParsedContact,
   StartupCheckResult,
   SyncStatus,
+  UserProfile,
 } from "../types";
 
 // ── Contacts ──────────────────────────────────────────────────────────
@@ -149,3 +151,20 @@ export const runStartupCheck = () =>
 
 export const autoRepair = (repairKey: string) =>
   invoke<string>("auto_repair", { repairKey });
+
+// ── Users ─────────────────────────────────────────────────────────────
+
+export const getUsers = () => invoke<UserProfile[]>("get_users");
+
+export const getActiveUser = () => invoke<UserProfile | null>("get_active_user");
+
+export const setActiveUser = (userId: string) =>
+  invoke<UserProfile>("set_active_user", { userId });
+
+// ── Enrichment ────────────────────────────────────────────────────────
+
+export const enrichContact = (contactId: number) =>
+  invoke<EnrichmentResult>("enrich_contact", { contactId });
+
+export const enrichAllContacts = () =>
+  invoke<EnrichmentResult[]>("enrich_all_contacts");

@@ -94,6 +94,7 @@ export interface Activity {
   follow_up_at?: number;
   follow_up_done: boolean;
   created_at: number;
+  user_id?: string;
 }
 
 export interface CreateActivityData {
@@ -103,6 +104,7 @@ export interface CreateActivityData {
   notes?: string;
   duration_sec?: number;
   follow_up_at?: number;
+  user_id?: string;
 }
 
 export interface FollowUpItem {
@@ -265,6 +267,28 @@ export interface StartupCheck {
 export interface StartupCheckResult {
   all_passed: boolean;
   checks: StartupCheck[];
+}
+
+// ── Users ─────────────────────────────────────────────────────────────
+
+export interface UserProfile {
+  id: string;
+  display_name: string;
+  initials: string;
+  color: string;
+}
+
+export interface EnrichmentResult {
+  contact_id: number;
+  company_name: string;
+  found_on_importyeti: boolean;
+  commodities: string[];
+  suppliers: string[];
+  shipment_count?: number;
+  phone_found?: string;
+  email_found?: string;
+  cold_call_script: string;
+  error?: string;
 }
 
 // ── UI ────────────────────────────────────────────────────────────────

@@ -1,33 +1,38 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0b0b0b;
-  --color-surface: #141414;
-  --color-surface-2: #1c1c1c;
-  --color-border: #252525;
-  --color-border-hover: #343434;
-  --color-text: #e8e8e8;
-  --color-text-2: #888;
-  --color-text-3: #555;
-  --color-accent: #5b6ef5;
-  --color-accent-hover: #6b7ef9;
-  --color-green: #22c55e;
-  --color-yellow: #eab308;
+  --color-bg: #05050a;
+  --color-surface: rgba(255,255,255,0.03);
+  --color-surface-2: rgba(255,255,255,0.06);
+  --color-border: rgba(255,255,255,0.07);
+  --color-border-hover: rgba(99,102,241,0.5);
+  --color-text: #f0f0f5;
+  --color-text-2: #8b8ba8;
+  --color-text-3: #4a4a65;
+  --color-accent: #6366f1;
+  --color-accent-hover: #818cf8;
+  --color-accent-glow: rgba(99,102,241,0.25);
+  --color-cyan: #06b6d4;
+  --color-cyan-glow: rgba(6,182,212,0.2);
+  --color-green: #10b981;
+  --color-green-glow: rgba(16,185,129,0.2);
+  --color-yellow: #f59e0b;
+  --color-yellow-glow: rgba(245,158,11,0.2);
   --color-red: #ef4444;
-  --color-blue: #3b82f6;
+  --color-red-glow: rgba(239,68,68,0.2);
 
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --radius: 6px;
+  --radius: 12px;
+  --radius-sm: 8px;
 }
 
 * {
   box-sizing: border-box;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-html,
-body,
-#root {
+html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -40,30 +45,92 @@ body,
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #444; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
 
 /* Selection */
-::selection { background: rgba(91, 110, 245, 0.3); }
+::selection { background: rgba(99,102,241,0.3); }
 
 /* Focus ring */
-:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
 
 /* Input base */
 input, textarea, select {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
   color: var(--color-text);
-  border-radius: var(--radius);
-  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
   font-size: 13px;
   font-family: inherit;
-  transition: border-color 0.1s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: var(--color-accent);
+  border-color: rgba(99,102,241,0.6);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
 }
 input::placeholder, textarea::placeholder { color: var(--color-text-3); }
+
+/* Glass card utility */
+.glass {
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.07);
+}
+
+/* Animated background orbs */
+@keyframes orb-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(60px, -40px) scale(1.05); }
+  66% { transform: translate(-40px, 30px) scale(0.95); }
+}
+@keyframes orb-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-50px, 40px) scale(1.08); }
+  66% { transform: translate(30px, -50px) scale(0.92); }
+}
+@keyframes orb-drift-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, 40px) scale(1.1); }
+}
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+}
+.orb-1 {
+  width: 600px; height: 600px;
+  top: -200px; left: -100px;
+  background: radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%);
+  animation: orb-drift-1 20s ease-in-out infinite;
+}
+.orb-2 {
+  width: 500px; height: 500px;
+  bottom: -150px; right: -100px;
+  background: radial-gradient(circle, rgba(6,182,212,0.09) 0%, transparent 70%);
+  animation: orb-drift-2 25s ease-in-out infinite;
+}
+.orb-3 {
+  width: 400px; height: 400px;
+  top: 40%; right: 20%;
+  background: radial-gradient(circle, rgba(139,92,246,0.07) 0%, transparent 70%);
+  animation: orb-drift-3 30s ease-in-out infinite;
+}
+
+/* Glow pulse for active states */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(99,102,241,0.4); }
+  50% { box-shadow: 0 0 16px rgba(99,102,241,0.7); }
+}
+
+/* Shimmer effect */
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}

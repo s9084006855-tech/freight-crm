@@ -1,12 +1,14 @@
 pub mod activities;
 pub mod contacts;
 pub mod diagnostics;
+pub mod enrich;
 pub mod import;
 pub mod keychain;
 pub mod ocr;
 pub mod settings;
 pub mod startup;
 pub mod sync;
+pub mod users;
 
 pub fn normalize_company(name: &str) -> String {
     name.to_lowercase()

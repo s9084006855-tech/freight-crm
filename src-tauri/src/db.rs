@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result, params};
 use std::fs;
 use std::path::Path;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 pub fn open_and_init(path: &str) -> Result<Connection> {
     if let Some(parent) = Path::new(path).parent() {
@@ -52,10 +52,12 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
 
     if current < 1 {
         apply_v1(conn)?;
-        conn.execute(
-            "INSERT INTO schema_migrations (version) VALUES (1)",
-            [],
-        )?;
+        conn.execute("INSERT INTO schema_migrations (version) VALUES (1)", [])?;
+    }
+
+    if current < 2 {
+        apply_v2(conn)?;
+        conn.execute("INSERT INTO schema_migrations (version) VALUES (2)", [])?;
     }
 
     // Write schema version to sync_metadata
@@ -219,5 +221,14 @@ fn apply_v1(conn: &Connection) -> Result<()> {
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+    ")
+}
+
+fn apply_v2(conn: &Connection) -> Result<()> {
+    conn.execute_batch("
+        ALTER TABLE activities ADD COLUMN user_id TEXT;
+        ALTER TABLE contacts ADD COLUMN enrichment_status TEXT;
+        ALTER TABLE contacts ADD COLUMN enrichment_data TEXT;
+        ALTER TABLE contacts ADD COLUMN enriched_at INTEGER;
     ")
 }

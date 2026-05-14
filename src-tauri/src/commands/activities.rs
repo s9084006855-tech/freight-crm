@@ -13,8 +13,8 @@ pub fn log_activity(
     let now = chrono::Utc::now().timestamp();
 
     conn.execute(
-        "INSERT INTO activities (contact_id, type, outcome, notes, duration_sec, follow_up_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO activities (contact_id, type, outcome, notes, duration_sec, follow_up_at, created_at, user_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             data.contact_id,
             data.activity_type,
@@ -23,6 +23,7 @@ pub fn log_activity(
             data.duration_sec,
             data.follow_up_at,
             now,
+            data.user_id,
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -41,7 +42,7 @@ pub fn log_activity(
     let activity = conn
         .query_row(
             "SELECT id, contact_id, type, outcome, notes, duration_sec, follow_up_at,
-                    follow_up_done, created_at
+                    follow_up_done, created_at, user_id
              FROM activities WHERE id = ?1",
             params![id],
             |row| {
@@ -55,6 +56,7 @@ pub fn log_activity(
                     follow_up_at: row.get(6)?,
                     follow_up_done: row.get::<_, i32>(7)? != 0,
                     created_at: row.get(8)?,
+                    user_id: row.get(9).ok(),
                 })
             },
         )
@@ -76,7 +78,7 @@ pub fn get_activities(
     let mut stmt = conn
         .prepare(
             "SELECT id, contact_id, type, outcome, notes, duration_sec,
-                    follow_up_at, follow_up_done, created_at
+                    follow_up_at, follow_up_done, created_at, user_id
              FROM activities WHERE contact_id = ?1
              ORDER BY created_at DESC LIMIT 200",
         )
@@ -93,6 +95,7 @@ pub fn get_activities(
             follow_up_at: row.get(6)?,
             follow_up_done: row.get::<_, i32>(7)? != 0,
             created_at: row.get(8)?,
+            user_id: row.get(9).ok(),
         })
     })
     .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -216,7 +219,7 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats,
     let mut act_stmt = conn
         .prepare(
             "SELECT id, contact_id, type, outcome, notes, duration_sec,
-                    follow_up_at, follow_up_done, created_at
+                    follow_up_at, follow_up_done, created_at, user_id
              FROM activities ORDER BY created_at DESC LIMIT 10",
         )
         .map_err(|e| e.to_string())?;
@@ -233,6 +236,7 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats,
                 follow_up_at: row.get(6)?,
                 follow_up_done: row.get::<_, i32>(7)? != 0,
                 created_at: row.get(8)?,
+                user_id: row.get(9).ok(),
             })
         })
         .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
