@@ -26,6 +26,15 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "RWRANHENghAJ4k1XgqWGLSnDWtDudCghIw6EKX1trjHmPfkwzyYCT2ni",
+      "endpoints": [
+        "https://github.com/s9084006855-tech/freight-crm/releases/latest/download/latest.json"
+      ],
+      "dialog": false
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["dmg", "app"],

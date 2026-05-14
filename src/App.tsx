@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { AppShell } from "./components/layout/AppShell";
+import { UpdateChecker } from "./components/common/UpdateChecker";
 import { StartupCheck } from "./components/common/StartupCheck";
 import { LoginScreen } from "./components/common/LoginScreen";
 import { DiagnosticsPanel } from "./components/diagnostics/DiagnosticsPanel";
@@ -81,6 +82,7 @@ export default function App() {
         <QuickCallModal activeUser={activeUser} />
         <GlobalShortcuts />
         <SyncPoller />
+        <UpdateChecker />
       </AppShell>
     </StartupCheck>
   );

@@ -19,6 +19,9 @@
     "fs:allow-remove",
     "fs:allow-copy-file",
     "fs:allow-read-dir",
-    "fs:allow-stat"
+    "fs:allow-stat",
+    "updater:default",
+    "process:default",
+    "process:allow-restart"
   ]
 }
