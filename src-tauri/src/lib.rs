@@ -84,6 +84,18 @@ pub fn run() {
             app.manage(state);
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if let Some(state) = window.try_state::<AppState>() {
+                    if let Ok(db_guard) = state.db.lock() {
+                        if let Some(conn) = db_guard.as_ref() {
+                            // Checkpoint WAL so Dropbox/iCloud syncs a complete .sqlite file
+                            let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+                        }
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::contacts::get_contacts,
             commands::contacts::get_contact,
