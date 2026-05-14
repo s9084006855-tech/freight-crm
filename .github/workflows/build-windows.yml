@@ -32,7 +32,7 @@ jobs:
               --notes "Auto-update release" \
               --latest
           fi
-          ID=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json id -q '.id')
+          ID=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId -q '.databaseId')
           echo "release_id=$ID" >> "$GITHUB_OUTPUT"
 
   build-mac:
@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - uses: dtolnay/rust-toolchain@stable
@@ -79,7 +79,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - uses: dtolnay/rust-toolchain@stable
