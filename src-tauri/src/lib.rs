@@ -61,21 +61,17 @@ pub fn run() {
             let turso_db = if !local_cfg.turso_url.is_empty() && !local_cfg.turso_token.is_empty() {
                 let url = local_cfg.turso_url.clone();
                 let token = local_cfg.turso_token.clone();
-                // Build a blocking runtime just for the initial async connect
-                match tokio::runtime::Runtime::new() {
-                    Ok(rt) => rt.block_on(async {
-                        match libsql::Builder::new_remote(url, token).build().await {
-                            Ok(db) => {
-                                if let Ok(conn) = db.connect() {
-                                    let _ = crate::db::init_schema_async(&conn).await;
-                                }
-                                Some(db)
+                tauri::async_runtime::block_on(async {
+                    match libsql::Builder::new_remote(url, token).build().await {
+                        Ok(db) => {
+                            if let Ok(conn) = db.connect() {
+                                let _ = crate::db::init_schema_async(&conn).await;
                             }
-                            Err(_) => None,
+                            Some(db)
                         }
-                    }),
-                    Err(_) => None,
-                }
+                        Err(_) => None,
+                    }
+                })
             } else {
                 None
             };

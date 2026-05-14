@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from "react";
 import type { StartupCheckResult } from "../../types";
 import * as db from "../../lib/db";
 import { humanError } from "../../lib/errors";
+import { useUIStore } from "../../store/ui";
 
 interface Props {
   children: ReactNode;
@@ -10,6 +11,7 @@ interface Props {
 export function StartupCheck({ children }: Props) {
   const [result, setResult] = useState<StartupCheckResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const setView = useUIStore((s) => s.setView);
 
   useEffect(() => {
     db.runStartupCheck().then(setResult).catch((e) => setError(humanError(e)));
@@ -74,7 +76,7 @@ export function StartupCheck({ children }: Props) {
             Recheck
           </button>
           <button
-            onClick={() => setResult({ all_passed: true, checks: [] })}
+            onClick={() => { setView("settings"); setResult({ all_passed: true, checks: [] }); }}
             className="px-3 py-1.5 text-xs font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-500 rounded"
           >
             Continue anyway

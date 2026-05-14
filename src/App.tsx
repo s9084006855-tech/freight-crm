@@ -5,6 +5,7 @@ import { StartupCheck } from "./components/common/StartupCheck";
 import { LoginScreen } from "./components/common/LoginScreen";
 import { DiagnosticsPanel } from "./components/diagnostics/DiagnosticsPanel";
 import { QuickCallModal } from "./components/activities/QuickCallModal";
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { DashboardView } from "./views/DashboardView";
 import { ContactsView } from "./views/ContactsView";
 import { ContactDetailView } from "./views/ContactDetailView";
@@ -78,7 +79,7 @@ export default function App() {
   return (
     <StartupCheck>
       <AppShell activeUser={activeUser} onSwitchUser={() => setActiveUser(null)}>
-        <Views activeUser={activeUser} />
+        <ErrorBoundary><Views activeUser={activeUser} /></ErrorBoundary>
         <DiagnosticsPanel />
         <QuickCallModal activeUser={activeUser} />
         <GlobalShortcuts />
