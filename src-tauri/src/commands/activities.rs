@@ -1,254 +1,180 @@
 use crate::{Activity, AppState, CreateActivityData, DashboardStats, FollowUpItem, StateCount};
-use crate::commands::conn_err;
-use rusqlite::params;
+use crate::db::last_insert_rowid;
 use tauri::State;
 
 #[tauri::command]
-pub fn log_activity(
+pub async fn log_activity(
     state: State<'_, AppState>,
     data: CreateActivityData,
 ) -> Result<Activity, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+    let conn = state.conn()?;
     let now = chrono::Utc::now().timestamp();
+    let is_call = data.activity_type == "call";
+    let contact_id = data.contact_id;
 
     conn.execute(
         "INSERT INTO activities (contact_id, type, outcome, notes, duration_sec, follow_up_at, created_at, user_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            data.contact_id,
-            data.activity_type,
-            data.outcome,
-            data.notes,
-            data.duration_sec,
-            data.follow_up_at,
-            now,
-            data.user_id,
+        libsql::params![
+            data.contact_id, data.activity_type, data.outcome, data.notes,
+            data.duration_sec, data.follow_up_at, now, data.user_id,
         ],
-    )
-    .map_err(|e| e.to_string())?;
+    ).await.map_err(|e| e.to_string())?;
 
-    let id = conn.last_insert_rowid();
+    let id = last_insert_rowid(&conn).await?;
 
-    // Update last_contacted_at on the contact
-    if data.activity_type == "call" {
+    if is_call {
         conn.execute(
             "UPDATE contacts SET last_contacted_at = ?1, updated_at = ?1 WHERE id = ?2",
-            params![now, data.contact_id],
-        )
-        .map_err(|e| e.to_string())?;
+            libsql::params![now, contact_id],
+        ).await.map_err(|e| e.to_string())?;
     }
 
-    let activity = conn
-        .query_row(
-            "SELECT id, contact_id, type, outcome, notes, duration_sec, follow_up_at,
-                    follow_up_done, created_at, user_id
-             FROM activities WHERE id = ?1",
-            params![id],
-            |row| {
-                Ok(Activity {
-                    id: row.get(0)?,
-                    contact_id: row.get(1)?,
-                    activity_type: row.get(2)?,
-                    outcome: row.get(3)?,
-                    notes: row.get(4)?,
-                    duration_sec: row.get(5)?,
-                    follow_up_at: row.get(6)?,
-                    follow_up_done: row.get::<_, i32>(7)? != 0,
-                    created_at: row.get(8)?,
-                    user_id: row.get(9).ok(),
-                })
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    let mut rows = conn.query(
+        "SELECT id, contact_id, type, outcome, notes, duration_sec, follow_up_at,
+                follow_up_done, created_at, user_id
+         FROM activities WHERE id = ?1",
+        libsql::params![id],
+    ).await.map_err(|e| e.to_string())?;
 
-    drop(db);
-    state.touch_sync();
-    Ok(activity)
+    let row = rows.next().await.map_err(|e| e.to_string())?.ok_or("not found")?;
+    Ok(row_to_activity(&row)?)
 }
 
 #[tauri::command]
-pub fn get_activities(
+pub async fn get_activities(
     state: State<'_, AppState>,
     contact_id: i64,
 ) -> Result<Vec<Activity>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+    let conn = state.conn()?;
+    let mut rows = conn.query(
+        "SELECT id, contact_id, type, outcome, notes, duration_sec,
+                follow_up_at, follow_up_done, created_at, user_id
+         FROM activities WHERE contact_id = ?1
+         ORDER BY created_at DESC LIMIT 200",
+        libsql::params![contact_id],
+    ).await.map_err(|e| e.to_string())?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, contact_id, type, outcome, notes, duration_sec,
-                    follow_up_at, follow_up_done, created_at, user_id
-             FROM activities WHERE contact_id = ?1
-             ORDER BY created_at DESC LIMIT 200",
-        )
-        .map_err(|e| e.to_string())?;
-
-    stmt.query_map(params![contact_id], |row| {
-        Ok(Activity {
-            id: row.get(0)?,
-            contact_id: row.get(1)?,
-            activity_type: row.get(2)?,
-            outcome: row.get(3)?,
-            notes: row.get(4)?,
-            duration_sec: row.get(5)?,
-            follow_up_at: row.get(6)?,
-            follow_up_done: row.get::<_, i32>(7)? != 0,
-            created_at: row.get(8)?,
-            user_id: row.get(9).ok(),
-        })
-    })
-    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-    .map_err(|e| e.to_string())
+    let mut result = Vec::new();
+    while let Some(row) = rows.next().await.map_err(|e| e.to_string())? {
+        result.push(row_to_activity(&row)?);
+    }
+    Ok(result)
 }
 
 #[tauri::command]
-pub fn get_follow_ups(state: State<'_, AppState>) -> Result<Vec<FollowUpItem>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+pub async fn get_follow_ups(state: State<'_, AppState>) -> Result<Vec<FollowUpItem>, String> {
+    let conn = state.conn()?;
     let now = chrono::Utc::now().timestamp();
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT a.id, a.contact_id, c.company_name, c.phone, c.state,
-                    a.follow_up_at, a.notes
-             FROM activities a
-             JOIN contacts c ON c.id = a.contact_id
-             WHERE a.follow_up_done = 0 AND a.follow_up_at IS NOT NULL
-               AND c.status != 'deleted'
-             ORDER BY a.follow_up_at ASC
-             LIMIT 100",
-        )
-        .map_err(|e| e.to_string())?;
+    let mut rows = conn.query(
+        "SELECT a.id, a.contact_id, c.company_name, c.phone, c.state,
+                a.follow_up_at, a.notes
+         FROM activities a
+         JOIN contacts c ON c.id = a.contact_id
+         WHERE a.follow_up_done = 0 AND a.follow_up_at IS NOT NULL
+           AND c.status != 'deleted'
+         ORDER BY a.follow_up_at ASC LIMIT 100",
+        (),
+    ).await.map_err(|e| e.to_string())?;
 
-    stmt.query_map([], |row| {
-        let follow_up_at: i64 = row.get(5)?;
-        Ok(FollowUpItem {
-            activity_id: row.get(0)?,
-            contact_id: row.get(1)?,
-            company_name: row.get(2)?,
-            phone: row.get(3)?,
-            state: row.get(4)?,
+    let mut result = Vec::new();
+    while let Some(row) = rows.next().await.map_err(|e| e.to_string())? {
+        let follow_up_at: i64 = row.get::<i64>(5).map_err(|e| e.to_string())?;
+        result.push(FollowUpItem {
+            activity_id:  row.get::<i64>(0).map_err(|e| e.to_string())?,
+            contact_id:   row.get::<i64>(1).map_err(|e| e.to_string())?,
+            company_name: row.get::<String>(2).map_err(|e| e.to_string())?,
+            phone:        row.get::<Option<String>>(3).map_err(|e| e.to_string())?,
+            state:        row.get::<Option<String>>(4).map_err(|e| e.to_string())?,
             follow_up_at,
-            notes: row.get(6)?,
-            overdue: follow_up_at < now,
-        })
-    })
-    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-    .map_err(|e| e.to_string())
+            notes:        row.get::<Option<String>>(6).map_err(|e| e.to_string())?,
+            overdue:      follow_up_at < now,
+        });
+    }
+    Ok(result)
 }
 
 #[tauri::command]
-pub fn mark_follow_up_done(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
-    conn.execute(
-        "UPDATE activities SET follow_up_done = 1 WHERE id = ?1",
-        params![id],
-    )
-    .map_err(|e| e.to_string())?;
-    drop(db);
-    state.touch_sync();
+pub async fn mark_follow_up_done(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.conn()?;
+    conn.execute("UPDATE activities SET follow_up_done = 1 WHERE id = ?1", libsql::params![id])
+        .await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+pub async fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats, String> {
+    let conn = state.conn()?;
     let now = chrono::Utc::now().timestamp();
     let today_start = now - (now % 86400);
-    let week_start = now - 7 * 86400;
+    let week_start  = now - 7 * 86400;
 
-    let total_contacts: i64 = conn
-        .query_row("SELECT COUNT(*) FROM contacts WHERE status != 'deleted'", [], |r| r.get(0))
-        .unwrap_or(0);
+    let total_contacts = scalar_i64(&conn, "SELECT COUNT(*) FROM contacts WHERE status != 'deleted'", ()).await?;
+    let calls_today    = scalar_i64(&conn, "SELECT COUNT(*) FROM activities WHERE type='call' AND created_at >= ?1", libsql::params![today_start]).await?;
+    let calls_week     = scalar_i64(&conn, "SELECT COUNT(*) FROM activities WHERE type='call' AND created_at >= ?1", libsql::params![week_start]).await?;
+    let fu_due         = scalar_i64(&conn,
+        "SELECT COUNT(*) FROM activities WHERE follow_up_done=0 AND follow_up_at IS NOT NULL AND follow_up_at BETWEEN ?1 AND ?2",
+        libsql::params![today_start, today_start + 86400]).await?;
+    let fu_overdue     = scalar_i64(&conn,
+        "SELECT COUNT(*) FROM activities WHERE follow_up_done=0 AND follow_up_at IS NOT NULL AND follow_up_at < ?1",
+        libsql::params![today_start]).await?;
 
-    let calls_today: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM activities WHERE type='call' AND created_at >= ?1",
-            params![today_start],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
+    let mut sc_rows = conn.query(
+        "SELECT state, COUNT(*) as cnt FROM contacts
+         WHERE status != 'deleted' AND state IS NOT NULL AND state != ''
+         GROUP BY state ORDER BY cnt DESC LIMIT 20",
+        (),
+    ).await.map_err(|e| e.to_string())?;
 
-    let calls_this_week: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM activities WHERE type='call' AND created_at >= ?1",
-            params![week_start],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
+    let mut contacts_by_state = Vec::new();
+    while let Some(row) = sc_rows.next().await.map_err(|e| e.to_string())? {
+        contacts_by_state.push(StateCount {
+            state: row.get::<String>(0).map_err(|e| e.to_string())?,
+            count: row.get::<i64>(1).map_err(|e| e.to_string())?,
+        });
+    }
 
-    let follow_ups_due_today: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM activities WHERE follow_up_done=0 AND follow_up_at IS NOT NULL
-             AND follow_up_at BETWEEN ?1 AND ?2",
-            params![today_start, today_start + 86400],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
+    let mut act_rows = conn.query(
+        "SELECT id, contact_id, type, outcome, notes, duration_sec,
+                follow_up_at, follow_up_done, created_at, user_id
+         FROM activities ORDER BY created_at DESC LIMIT 10",
+        (),
+    ).await.map_err(|e| e.to_string())?;
 
-    let follow_ups_overdue: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM activities WHERE follow_up_done=0 AND follow_up_at IS NOT NULL
-             AND follow_up_at < ?1",
-            params![today_start],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-
-    let mut state_stmt = conn
-        .prepare(
-            "SELECT state, COUNT(*) as cnt FROM contacts
-             WHERE status != 'deleted' AND state IS NOT NULL AND state != ''
-             GROUP BY state ORDER BY cnt DESC LIMIT 20",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let contacts_by_state: Vec<StateCount> = state_stmt
-        .query_map([], |row| {
-            Ok(StateCount {
-                state: row.get(0)?,
-                count: row.get(1)?,
-            })
-        })
-        .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
-        .map_err(|e| e.to_string())?;
-
-    let mut act_stmt = conn
-        .prepare(
-            "SELECT id, contact_id, type, outcome, notes, duration_sec,
-                    follow_up_at, follow_up_done, created_at, user_id
-             FROM activities ORDER BY created_at DESC LIMIT 10",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let recent_activities: Vec<Activity> = act_stmt
-        .query_map([], |row| {
-            Ok(Activity {
-                id: row.get(0)?,
-                contact_id: row.get(1)?,
-                activity_type: row.get(2)?,
-                outcome: row.get(3)?,
-                notes: row.get(4)?,
-                duration_sec: row.get(5)?,
-                follow_up_at: row.get(6)?,
-                follow_up_done: row.get::<_, i32>(7)? != 0,
-                created_at: row.get(8)?,
-                user_id: row.get(9).ok(),
-            })
-        })
-        .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
-        .map_err(|e| e.to_string())?;
+    let mut recent_activities = Vec::new();
+    while let Some(row) = act_rows.next().await.map_err(|e| e.to_string())? {
+        recent_activities.push(row_to_activity(&row)?);
+    }
 
     Ok(DashboardStats {
         total_contacts,
         calls_today,
-        calls_this_week,
-        follow_ups_due_today,
-        follow_ups_overdue,
+        calls_this_week: calls_week,
+        follow_ups_due_today: fu_due,
+        follow_ups_overdue: fu_overdue,
         contacts_by_state,
         recent_activities,
     })
+}
+
+fn row_to_activity(row: &libsql::Row) -> Result<Activity, String> {
+    Ok(Activity {
+        id:            row.get::<i64>(0).map_err(|e| e.to_string())?,
+        contact_id:    row.get::<i64>(1).map_err(|e| e.to_string())?,
+        activity_type: row.get::<String>(2).map_err(|e| e.to_string())?,
+        outcome:       row.get::<Option<String>>(3).map_err(|e| e.to_string())?,
+        notes:         row.get::<Option<String>>(4).map_err(|e| e.to_string())?,
+        duration_sec:  row.get::<Option<i64>>(5).map_err(|e| e.to_string())?,
+        follow_up_at:  row.get::<Option<i64>>(6).map_err(|e| e.to_string())?,
+        follow_up_done: row.get::<i64>(7).map_err(|e| e.to_string())? != 0,
+        created_at:    row.get::<i64>(8).map_err(|e| e.to_string())?,
+        user_id:       row.get::<Option<String>>(9).ok().flatten(),
+    })
+}
+
+async fn scalar_i64(conn: &libsql::Connection, sql: &str, params: impl libsql::params::IntoParams) -> Result<i64, String> {
+    let mut rows = conn.query(sql, params).await.map_err(|e| e.to_string())?;
+    let row = rows.next().await.map_err(|e| e.to_string())?;
+    Ok(row.and_then(|r| r.get::<i64>(0).ok()).unwrap_or(0))
 }

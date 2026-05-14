@@ -1,15 +1,14 @@
 use crate::{AppState, ContactDetail, ContactFilter, ContactPerson, ContactSummary, CreateContactData, UpdateContactData};
-use crate::commands::{conn_err, normalize_company, normalize_phone};
-use rusqlite::params;
+use crate::db::{normalize_company, normalize_phone, last_insert_rowid};
+use libsql::Value;
 use tauri::State;
 
 #[tauri::command]
-pub fn get_contacts(
+pub async fn get_contacts(
     state: State<'_, AppState>,
     filter: ContactFilter,
 ) -> Result<Vec<ContactSummary>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+    let conn = state.conn()?;
 
     let search_pat = filter.search.as_ref().map(|s| format!("%{}%", s.to_lowercase()));
     let role_pat = filter.role.as_ref().map(|r| format!("%{}%", r));
@@ -42,138 +41,117 @@ pub fn get_contacts(
          LIMIT ? OFFSET ?",
         search = if search_pat.is_some() {
             "AND (c.company_name_search LIKE ? OR c.phone LIKE ? OR c.email LIKE ?)"
-        } else {
-            ""
-        },
-        state_f = if filter.state.is_some() { "AND c.state = ?" } else { "" },
-        status_f = if filter.status.is_some() { "AND c.status = ?" } else { "" },
+        } else { "" },
+        state_f  = if filter.state.is_some()    { "AND c.state = ?"    } else { "" },
+        status_f = if filter.status.is_some()   { "AND c.status = ?"   } else { "" },
         priority_f = if filter.priority.is_some() { "AND c.priority = ?" } else { "" },
-        role_f = if role_pat.is_some() { "AND c.roles LIKE ?" } else { "" },
+        role_f   = if role_pat.is_some()        { "AND c.roles LIKE ?" } else { "" },
         sort = sort_col,
-        dir = dir,
+        dir  = dir,
     );
 
-    let limit = filter.limit.unwrap_or(200);
-    let offset = filter.offset.unwrap_or(0);
+    let limit  = filter.limit.unwrap_or(200) as i64;
+    let offset = filter.offset.unwrap_or(0)  as i64;
 
-    let mut params_dyn: Vec<Box<dyn rusqlite::types::ToSql>> = vec![];
+    let mut params: Vec<Value> = vec![];
     if let Some(ref p) = search_pat {
-        params_dyn.push(Box::new(p.clone()));
-        params_dyn.push(Box::new(p.clone()));
-        params_dyn.push(Box::new(p.clone()));
+        params.push(Value::Text(p.clone()));
+        params.push(Value::Text(p.clone()));
+        params.push(Value::Text(p.clone()));
     }
-    if let Some(ref s) = filter.state { params_dyn.push(Box::new(s.clone())); }
-    if let Some(ref s) = filter.status { params_dyn.push(Box::new(s.clone())); }
-    if let Some(p) = filter.priority { params_dyn.push(Box::new(p)); }
-    if let Some(ref r) = role_pat { params_dyn.push(Box::new(r.clone())); }
-    params_dyn.push(Box::new(limit));
-    params_dyn.push(Box::new(offset));
+    if let Some(ref s) = filter.state    { params.push(Value::Text(s.clone())); }
+    if let Some(ref s) = filter.status   { params.push(Value::Text(s.clone())); }
+    if let Some(p)     = filter.priority { params.push(Value::Integer(p as i64)); }
+    if let Some(ref r) = role_pat        { params.push(Value::Text(r.clone())); }
+    params.push(Value::Integer(limit));
+    params.push(Value::Integer(offset));
 
-    let params_slice: Vec<&dyn rusqlite::types::ToSql> =
-        params_dyn.iter().map(|p| p.as_ref()).collect();
-
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map(params_slice.as_slice(), |row| {
-            Ok(ContactSummary {
-                id: row.get(0)?,
-                company_name: row.get(1)?,
-                phone: row.get(2)?,
-                email: row.get(3)?,
-                city: row.get(4)?,
-                state: row.get(5)?,
-                roles: row.get(6)?,
-                status: row.get(7)?,
-                priority: row.get(8)?,
-                last_contacted_at: row.get(9)?,
-                has_follow_up: row.get::<_, i32>(10)? != 0,
-            })
-        })
-        .map_err(|e| e.to_string())?;
-
-    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    let mut rows = conn.query(&sql, params).await.map_err(|e| e.to_string())?;
+    let mut result = Vec::new();
+    while let Some(row) = rows.next().await.map_err(|e| e.to_string())? {
+        result.push(ContactSummary {
+            id:               row.get::<i64>(0).map_err(|e| e.to_string())?,
+            company_name:     row.get::<String>(1).map_err(|e| e.to_string())?,
+            phone:            row.get::<Option<String>>(2).map_err(|e| e.to_string())?,
+            email:            row.get::<Option<String>>(3).map_err(|e| e.to_string())?,
+            city:             row.get::<Option<String>>(4).map_err(|e| e.to_string())?,
+            state:            row.get::<Option<String>>(5).map_err(|e| e.to_string())?,
+            roles:            row.get::<Option<String>>(6).map_err(|e| e.to_string())?,
+            status:           row.get::<String>(7).map_err(|e| e.to_string())?,
+            priority:         row.get::<i64>(8).map_err(|e| e.to_string())? as i32,
+            last_contacted_at: row.get::<Option<i64>>(9).map_err(|e| e.to_string())?,
+            has_follow_up:    row.get::<i64>(10).map_err(|e| e.to_string())? != 0,
+        });
+    }
+    Ok(result)
 }
 
 #[tauri::command]
-pub fn get_contact(
-    state: State<'_, AppState>,
-    id: i64,
-) -> Result<ContactDetail, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+pub async fn get_contact(state: State<'_, AppState>, id: i64) -> Result<ContactDetail, String> {
+    let conn = state.conn()?;
 
-    let detail = conn
-        .query_row(
-            "SELECT id, bbid, company_name, phone, fax, email, website, street, city, state,
-                    zip, country, roles, commodities, status, priority, source, notes,
-                    created_at, updated_at, last_contacted_at
-             FROM contacts WHERE id = ?1",
-            params![id],
-            |row| {
-                Ok(ContactDetail {
-                    id: row.get(0)?,
-                    bbid: row.get(1)?,
-                    company_name: row.get(2)?,
-                    phone: row.get(3)?,
-                    fax: row.get(4)?,
-                    email: row.get(5)?,
-                    website: row.get(6)?,
-                    street: row.get(7)?,
-                    city: row.get(8)?,
-                    state: row.get(9)?,
-                    zip: row.get(10)?,
-                    country: row.get(11)?,
-                    roles: row.get(12)?,
-                    commodities: row.get(13)?,
-                    status: row.get(14)?,
-                    priority: row.get(15)?,
-                    source: row.get(16)?,
-                    notes: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
-                    last_contacted_at: row.get(20)?,
-                    people: vec![],
-                })
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    let mut rows = conn.query(
+        "SELECT id, bbid, company_name, phone, fax, email, website, street, city, state,
+                zip, country, roles, commodities, status, priority, source, notes,
+                created_at, updated_at, last_contacted_at
+         FROM contacts WHERE id = ?1",
+        libsql::params![id],
+    ).await.map_err(|e| e.to_string())?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, contact_id, name, title, phone, mobile, email, is_primary, notes
-             FROM contact_people WHERE contact_id = ?1 ORDER BY is_primary DESC, name",
-        )
-        .map_err(|e| e.to_string())?;
+    let row = rows.next().await.map_err(|e| e.to_string())?.ok_or("Contact not found")?;
+    let mut detail = ContactDetail {
+        id:               row.get::<i64>(0).map_err(|e| e.to_string())?,
+        bbid:             row.get::<Option<String>>(1).map_err(|e| e.to_string())?,
+        company_name:     row.get::<String>(2).map_err(|e| e.to_string())?,
+        phone:            row.get::<Option<String>>(3).map_err(|e| e.to_string())?,
+        fax:              row.get::<Option<String>>(4).map_err(|e| e.to_string())?,
+        email:            row.get::<Option<String>>(5).map_err(|e| e.to_string())?,
+        website:          row.get::<Option<String>>(6).map_err(|e| e.to_string())?,
+        street:           row.get::<Option<String>>(7).map_err(|e| e.to_string())?,
+        city:             row.get::<Option<String>>(8).map_err(|e| e.to_string())?,
+        state:            row.get::<Option<String>>(9).map_err(|e| e.to_string())?,
+        zip:              row.get::<Option<String>>(10).map_err(|e| e.to_string())?,
+        country:          row.get::<Option<String>>(11).map_err(|e| e.to_string())?,
+        roles:            row.get::<Option<String>>(12).map_err(|e| e.to_string())?,
+        commodities:      row.get::<Option<String>>(13).map_err(|e| e.to_string())?,
+        status:           row.get::<String>(14).map_err(|e| e.to_string())?,
+        priority:         row.get::<i64>(15).map_err(|e| e.to_string())? as i32,
+        source:           row.get::<Option<String>>(16).map_err(|e| e.to_string())?.unwrap_or_default(),
+        notes:            row.get::<Option<String>>(17).map_err(|e| e.to_string())?,
+        created_at:       row.get::<i64>(18).map_err(|e| e.to_string())?,
+        updated_at:       row.get::<i64>(19).map_err(|e| e.to_string())?,
+        last_contacted_at: row.get::<Option<i64>>(20).map_err(|e| e.to_string())?,
+        people: vec![],
+    };
 
-    let people: Vec<ContactPerson> = stmt
-        .query_map(params![id], |row| {
-            Ok(ContactPerson {
-                id: row.get(0)?,
-                contact_id: row.get(1)?,
-                name: row.get(2)?,
-                title: row.get(3)?,
-                phone: row.get(4)?,
-                mobile: row.get(5)?,
-                email: row.get(6)?,
-                is_primary: row.get::<_, i32>(7)? != 0,
-                notes: row.get(8)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+    let mut prows = conn.query(
+        "SELECT id, contact_id, name, title, phone, mobile, email, is_primary, notes
+         FROM contact_people WHERE contact_id = ?1 ORDER BY is_primary DESC, name",
+        libsql::params![id],
+    ).await.map_err(|e| e.to_string())?;
 
-    Ok(ContactDetail { people, ..detail })
+    while let Some(pr) = prows.next().await.map_err(|e| e.to_string())? {
+        detail.people.push(ContactPerson {
+            id:         pr.get::<i64>(0).map_err(|e| e.to_string())?,
+            contact_id: pr.get::<i64>(1).map_err(|e| e.to_string())?,
+            name:       pr.get::<String>(2).map_err(|e| e.to_string())?,
+            title:      pr.get::<Option<String>>(3).map_err(|e| e.to_string())?,
+            phone:      pr.get::<Option<String>>(4).map_err(|e| e.to_string())?,
+            mobile:     pr.get::<Option<String>>(5).map_err(|e| e.to_string())?,
+            email:      pr.get::<Option<String>>(6).map_err(|e| e.to_string())?,
+            is_primary: pr.get::<i64>(7).map_err(|e| e.to_string())? != 0,
+            notes:      pr.get::<Option<String>>(8).map_err(|e| e.to_string())?,
+        });
+    }
+    Ok(detail)
 }
 
 #[tauri::command]
-pub fn create_contact(
+pub async fn create_contact(
     state: State<'_, AppState>,
     data: CreateContactData,
 ) -> Result<ContactSummary, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
-
+    let conn = state.conn()?;
     let search = normalize_company(&data.company_name);
     let phone_norm = data.phone.as_deref().map(normalize_phone);
     let now = chrono::Utc::now().timestamp();
@@ -184,146 +162,89 @@ pub fn create_contact(
                                roles, commodities, status, priority, source, notes,
                                created_at, updated_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?20)",
-        params![
-            data.bbid,
-            data.company_name,
-            search,
-            data.phone,
-            phone_norm,
-            data.fax,
-            data.email,
-            data.website,
-            data.street,
-            data.city,
-            data.state,
-            data.zip,
+        libsql::params![
+            data.bbid, data.company_name, search, data.phone, phone_norm,
+            data.fax, data.email, data.website, data.street, data.city,
+            data.state, data.zip,
             data.country.as_deref().unwrap_or("USA"),
-            data.roles,
-            data.commodities,
+            data.roles, data.commodities,
             data.status.as_deref().unwrap_or("active"),
             data.priority.unwrap_or(0),
             data.source.as_deref().unwrap_or("manual"),
-            data.notes,
-            now,
+            data.notes, now,
         ],
-    )
-    .map_err(|e| e.to_string())?;
+    ).await.map_err(|e| e.to_string())?;
 
-    let id = conn.last_insert_rowid();
-    drop(db);
-    state.touch_sync();
-
-    let db2 = state.db.lock().map_err(|e| e.to_string())?;
-    let conn2 = db2.as_ref().ok_or_else(conn_err)?;
-    conn2.query_row(
-        "SELECT id, company_name, phone, email, city, state, roles, status, priority,
-                last_contacted_at,
-                EXISTS(SELECT 1 FROM activities a WHERE a.contact_id = id AND a.follow_up_done=0 AND a.follow_up_at IS NOT NULL)
-         FROM contacts WHERE id = ?1",
-        params![id],
-        |row| Ok(ContactSummary {
-            id: row.get(0)?,
-            company_name: row.get(1)?,
-            phone: row.get(2)?,
-            email: row.get(3)?,
-            city: row.get(4)?,
-            state: row.get(5)?,
-            roles: row.get(6)?,
-            status: row.get(7)?,
-            priority: row.get(8)?,
-            last_contacted_at: row.get(9)?,
-            has_follow_up: row.get::<_, i32>(10)? != 0,
-        }),
-    )
-    .map_err(|e| e.to_string())
+    let id = last_insert_rowid(&conn).await?;
+    fetch_summary(&conn, id).await
 }
 
 #[tauri::command]
-pub fn update_contact(
+pub async fn update_contact(
     state: State<'_, AppState>,
     id: i64,
     data: UpdateContactData,
 ) -> Result<ContactSummary, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+    let conn = state.conn()?;
     let now = chrono::Utc::now().timestamp();
 
     if let Some(ref name) = data.company_name {
         let search = normalize_company(name);
         conn.execute(
             "UPDATE contacts SET company_name=?1, company_name_search=?2, updated_at=?3 WHERE id=?4",
-            params![name, search, now, id],
-        ).map_err(|e| e.to_string())?;
+            libsql::params![name.clone(), search, now, id],
+        ).await.map_err(|e| e.to_string())?;
     }
 
-    macro_rules! update_field {
-        ($field:expr, $col:literal) => {
-            if let Some(ref v) = $field {
+    macro_rules! upd {
+        ($field:expr, $col:literal, $val:expr) => {
+            if $field.is_some() {
                 conn.execute(
                     &format!("UPDATE contacts SET {} = ?1, updated_at = ?2 WHERE id = ?3", $col),
-                    params![v, now, id],
-                ).map_err(|e| e.to_string())?;
+                    libsql::params![$val, now, id],
+                ).await.map_err(|e| e.to_string())?;
             }
         };
     }
 
-    update_field!(data.phone, "phone");
     if let Some(ref p) = data.phone {
         let norm = normalize_phone(p);
-        conn.execute("UPDATE contacts SET phone_normalized=?1, updated_at=?2 WHERE id=?3",
-            params![norm, now, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE contacts SET phone=?1, phone_normalized=?2, updated_at=?3 WHERE id=?4",
+            libsql::params![p.clone(), norm, now, id],
+        ).await.map_err(|e| e.to_string())?;
     }
-    update_field!(data.fax, "fax");
-    update_field!(data.email, "email");
-    update_field!(data.website, "website");
-    update_field!(data.street, "street");
-    update_field!(data.city, "city");
-    update_field!(data.state, "state");
-    update_field!(data.zip, "zip");
-    update_field!(data.roles, "roles");
-    update_field!(data.commodities, "commodities");
-    update_field!(data.status, "status");
-    update_field!(data.notes, "notes");
+    upd!(data.fax,         "fax",         data.fax.as_deref().unwrap_or(""));
+    upd!(data.email,       "email",       data.email.as_deref().unwrap_or(""));
+    upd!(data.website,     "website",     data.website.as_deref().unwrap_or(""));
+    upd!(data.street,      "street",      data.street.as_deref().unwrap_or(""));
+    upd!(data.city,        "city",        data.city.as_deref().unwrap_or(""));
+    upd!(data.state,       "state",       data.state.as_deref().unwrap_or(""));
+    upd!(data.zip,         "zip",         data.zip.as_deref().unwrap_or(""));
+    upd!(data.roles,       "roles",       data.roles.as_deref().unwrap_or(""));
+    upd!(data.commodities, "commodities", data.commodities.as_deref().unwrap_or(""));
+    upd!(data.status,      "status",      data.status.as_deref().unwrap_or(""));
+    upd!(data.notes,       "notes",       data.notes.as_deref().unwrap_or(""));
     if let Some(p) = data.priority {
-        conn.execute("UPDATE contacts SET priority=?1, updated_at=?2 WHERE id=?3",
-            params![p, now, id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE contacts SET priority=?1, updated_at=?2 WHERE id=?3",
+            libsql::params![p, now, id],
+        ).await.map_err(|e| e.to_string())?;
     }
 
-    drop(db);
-    state.touch_sync();
-
-    let db2 = state.db.lock().map_err(|e| e.to_string())?;
-    let conn2 = db2.as_ref().ok_or_else(conn_err)?;
-    conn2.query_row(
-        "SELECT id, company_name, phone, email, city, state, roles, status, priority,
-                last_contacted_at,
-                EXISTS(SELECT 1 FROM activities a WHERE a.contact_id=id AND a.follow_up_done=0 AND a.follow_up_at IS NOT NULL)
-         FROM contacts WHERE id=?1",
-        params![id],
-        |row| Ok(ContactSummary {
-            id: row.get(0)?, company_name: row.get(1)?, phone: row.get(2)?,
-            email: row.get(3)?, city: row.get(4)?, state: row.get(5)?,
-            roles: row.get(6)?, status: row.get(7)?, priority: row.get(8)?,
-            last_contacted_at: row.get(9)?,
-            has_follow_up: row.get::<_, i32>(10)? != 0,
-        }),
-    )
-    .map_err(|e| e.to_string())
+    fetch_summary(&conn, id).await
 }
 
 #[tauri::command]
-pub fn delete_contact(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
-    conn.execute("DELETE FROM contacts WHERE id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
-    drop(db);
-    state.touch_sync();
+pub async fn delete_contact(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.conn()?;
+    conn.execute("DELETE FROM contacts WHERE id = ?1", libsql::params![id])
+        .await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn search_contacts(
+pub async fn search_contacts(
     state: State<'_, AppState>,
     query: String,
     limit: Option<i64>,
@@ -334,8 +255,32 @@ pub fn search_contacts(
             search: Some(query),
             state: None, status: Some("active".into()),
             priority: None, role: None,
-            limit, offset: None,
+            limit: limit.map(|l| l as i64), offset: None,
             sort_by: Some("name".into()), sort_desc: None,
         },
-    )
+    ).await
+}
+
+async fn fetch_summary(conn: &libsql::Connection, id: i64) -> Result<ContactSummary, String> {
+    let mut rows = conn.query(
+        "SELECT id, company_name, phone, email, city, state, roles, status, priority,
+                last_contacted_at,
+                EXISTS(SELECT 1 FROM activities a WHERE a.contact_id=id AND a.follow_up_done=0 AND a.follow_up_at IS NOT NULL)
+         FROM contacts WHERE id = ?1",
+        libsql::params![id],
+    ).await.map_err(|e| e.to_string())?;
+    let row = rows.next().await.map_err(|e| e.to_string())?.ok_or("Contact not found")?;
+    Ok(ContactSummary {
+        id:               row.get::<i64>(0).map_err(|e| e.to_string())?,
+        company_name:     row.get::<String>(1).map_err(|e| e.to_string())?,
+        phone:            row.get::<Option<String>>(2).map_err(|e| e.to_string())?,
+        email:            row.get::<Option<String>>(3).map_err(|e| e.to_string())?,
+        city:             row.get::<Option<String>>(4).map_err(|e| e.to_string())?,
+        state:            row.get::<Option<String>>(5).map_err(|e| e.to_string())?,
+        roles:            row.get::<Option<String>>(6).map_err(|e| e.to_string())?,
+        status:           row.get::<String>(7).map_err(|e| e.to_string())?,
+        priority:         row.get::<i64>(8).map_err(|e| e.to_string())? as i32,
+        last_contacted_at: row.get::<Option<i64>>(9).map_err(|e| e.to_string())?,
+        has_follow_up:    row.get::<i64>(10).map_err(|e| e.to_string())? != 0,
+    })
 }

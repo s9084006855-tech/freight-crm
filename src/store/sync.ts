@@ -9,8 +9,6 @@ interface SyncState {
   lastChecked: number | null;
 
   fetchStatus: () => Promise<void>;
-  refresh: () => Promise<void>;
-  forceUnlock: () => Promise<void>;
   startPolling: (intervalMs?: number) => () => void;
 }
 
@@ -25,26 +23,6 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       set({ status, lastChecked: Date.now() });
     } catch (e) {
       await logError(String(e), "sync/fetchStatus");
-    }
-  },
-
-  refresh: async () => {
-    try {
-      await db.refreshFromSync();
-      await get().fetchStatus();
-    } catch (e) {
-      await logError(String(e), "sync/refresh");
-      throw e;
-    }
-  },
-
-  forceUnlock: async () => {
-    try {
-      await db.forceUnlock();
-      await get().fetchStatus();
-    } catch (e) {
-      await logError(String(e), "sync/forceUnlock");
-      throw e;
     }
   },
 

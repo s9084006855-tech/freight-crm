@@ -1,80 +1,32 @@
-use rusqlite::{Connection, Result, params};
-use std::fs;
-use std::path::Path;
-
-pub const SCHEMA_VERSION: i64 = 2;
-
-pub fn open_and_init(path: &str) -> Result<Connection> {
-    if let Some(parent) = Path::new(path).parent() {
-        fs::create_dir_all(parent).ok();
-    }
-    let conn = Connection::open(path)?;
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA foreign_keys=ON;
-         PRAGMA synchronous=NORMAL;
-         PRAGMA busy_timeout=5000;",
-    )?;
-    init_schema(&conn)?;
-    Ok(conn)
-}
-
-pub fn touch_sync_metadata(conn: &Connection, device_id: &str, device_name: &str) -> Result<()> {
-    let now = chrono::Utc::now().timestamp();
-    for (key, value) in [
-        ("last_device_id", device_id.to_string()),
-        ("last_device_name", device_name.to_string()),
-        ("last_write_time", now.to_string()),
-    ] {
-        conn.execute(
-            "INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES (?1, ?2, ?3)",
-            params![key, value, now],
-        )?;
-    }
-    Ok(())
-}
-
-pub fn init_schema(conn: &Connection) -> Result<()> {
+pub async fn init_schema_async(conn: &libsql::Connection) -> Result<(), libsql::Error> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             version    INTEGER PRIMARY KEY,
             applied_at INTEGER NOT NULL DEFAULT (unixepoch())
          );",
-    )?;
+    ).await?;
 
-    let current: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
+    let current: i64 = {
+        let mut rows = conn.query(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations", ()
+        ).await?;
+        rows.next().await?.and_then(|r| r.get::<i64>(0).ok()).unwrap_or(0)
+    };
 
     if current < 1 {
-        apply_v1(conn)?;
-        conn.execute("INSERT INTO schema_migrations (version) VALUES (1)", [])?;
+        apply_v1(conn).await?;
+        conn.execute("INSERT INTO schema_migrations (version) VALUES (1)", ()).await?;
     }
 
     if current < 2 {
-        apply_v2(conn)?;
-        conn.execute("INSERT INTO schema_migrations (version) VALUES (2)", [])?;
+        apply_v2(conn).await?;
+        conn.execute("INSERT INTO schema_migrations (version) VALUES (2)", ()).await?;
     }
-
-    // Write schema version to sync_metadata
-    let now = chrono::Utc::now().timestamp();
-    conn.execute(
-        "INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES ('schema_version', ?1, ?2)",
-        params![SCHEMA_VERSION.to_string(), now],
-    )?;
-    conn.execute(
-        "INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES ('app_version', ?1, ?2)",
-        params![env!("CARGO_PKG_VERSION"), now],
-    )?;
 
     Ok(())
 }
 
-fn apply_v1(conn: &Connection) -> Result<()> {
+async fn apply_v1(conn: &libsql::Connection) -> Result<(), libsql::Error> {
     conn.execute_batch("
         CREATE TABLE IF NOT EXISTS contacts (
             id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,8 +88,6 @@ fn apply_v1(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_act_contact  ON activities(contact_id);
         CREATE INDEX IF NOT EXISTS idx_act_type     ON activities(type);
         CREATE INDEX IF NOT EXISTS idx_act_created  ON activities(created_at);
-        CREATE INDEX IF NOT EXISTS idx_act_followup ON activities(follow_up_at)
-            WHERE follow_up_done = 0 AND follow_up_at IS NOT NULL;
 
         CREATE TABLE IF NOT EXISTS tags (
             id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,7 +104,7 @@ fn apply_v1(conn: &Connection) -> Result<()> {
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             source_type         TEXT NOT NULL,
             source_name         TEXT,
-            template_id         INTEGER REFERENCES column_mapping_templates(id),
+            template_id         INTEGER,
             started_at          INTEGER NOT NULL DEFAULT (unixepoch()),
             completed_at        INTEGER,
             contacts_added      INTEGER NOT NULL DEFAULT 0,
@@ -163,8 +113,6 @@ fn apply_v1(conn: &Connection) -> Result<()> {
             status              TEXT NOT NULL DEFAULT 'pending',
             notes               TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_is_status  ON import_sessions(status);
-        CREATE INDEX IF NOT EXISTS idx_is_started ON import_sessions(started_at);
 
         CREATE TABLE IF NOT EXISTS import_session_contacts (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,8 +122,6 @@ fn apply_v1(conn: &Connection) -> Result<()> {
             previous_data   TEXT,
             created_at      INTEGER NOT NULL DEFAULT (unixepoch())
         );
-        CREATE INDEX IF NOT EXISTS idx_isc_session ON import_session_contacts(session_id);
-        CREATE INDEX IF NOT EXISTS idx_isc_contact ON import_session_contacts(contact_id);
 
         CREATE TABLE IF NOT EXISTS column_mapping_templates (
             id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -199,7 +145,6 @@ fn apply_v1(conn: &Connection) -> Result<()> {
             confidence   REAL,
             status       TEXT NOT NULL DEFAULT 'pending'
         );
-        CREATE INDEX IF NOT EXISTS idx_pl_session ON parsing_logs(session_id);
 
         CREATE TABLE IF NOT EXISTS sync_metadata (
             key        TEXT PRIMARY KEY,
@@ -221,14 +166,36 @@ fn apply_v1(conn: &Connection) -> Result<()> {
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-    ")
+    ").await.map(|_| ())
 }
 
-fn apply_v2(conn: &Connection) -> Result<()> {
-    conn.execute_batch("
-        ALTER TABLE activities ADD COLUMN user_id TEXT;
-        ALTER TABLE contacts ADD COLUMN enrichment_status TEXT;
-        ALTER TABLE contacts ADD COLUMN enrichment_data TEXT;
-        ALTER TABLE contacts ADD COLUMN enriched_at INTEGER;
-    ")
+async fn apply_v2(conn: &libsql::Connection) -> Result<(), libsql::Error> {
+    // Ignore errors — columns may already exist
+    let _ = conn.execute("ALTER TABLE activities ADD COLUMN user_id TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE contacts ADD COLUMN enrichment_status TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE contacts ADD COLUMN enrichment_data TEXT", ()).await;
+    let _ = conn.execute("ALTER TABLE contacts ADD COLUMN enriched_at INTEGER", ()).await;
+    Ok(())
+}
+
+pub fn normalize_company(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn normalize_phone(phone: &str) -> String {
+    phone.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+pub async fn last_insert_rowid(conn: &libsql::Connection) -> Result<i64, String> {
+    let mut rows = conn.query("SELECT last_insert_rowid()", ())
+        .await.map_err(|e| e.to_string())?;
+    let row = rows.next().await.map_err(|e| e.to_string())?
+        .ok_or("no rowid")?;
+    row.get::<i64>(0).map_err(|e| e.to_string())
 }

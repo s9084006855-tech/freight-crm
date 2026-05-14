@@ -1,14 +1,12 @@
 use crate::{AppState, EnrichmentResult};
-use crate::commands::conn_err;
 use crate::commands::keychain::get_raw_api_key;
 use futures::future::join_all;
-use rusqlite::params;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
 const CLAUDE_API: &str = "https://api.anthropic.com/v1/messages";
 const CLAUDE_MODEL: &str = "claude-haiku-4-5-20251001";
-const PARALLEL: usize = 5;   // concurrent web searches
+const PARALLEL: usize = 5;
 const MAX_TOOL_TURNS: usize = 8;
 
 #[derive(Clone)]
@@ -117,7 +115,6 @@ async fn call_claude_with_web_search(
 
         let resp_json: Value = resp.json().await.map_err(|e| e.to_string())?;
 
-        // Check for API errors
         if let Some(err) = resp_json.get("error") {
             return Err(err["message"].as_str().unwrap_or("API error").to_string());
         }
@@ -125,7 +122,6 @@ async fn call_claude_with_web_search(
         let stop_reason = resp_json["stop_reason"].as_str().unwrap_or("");
         let content = resp_json["content"].as_array().cloned().unwrap_or_default();
 
-        // Extract any text blocks from this turn
         let text_so_far: String = content.iter()
             .filter_map(|b| {
                 if b["type"].as_str() == Some("text") {
@@ -142,17 +138,12 @@ async fn call_claude_with_web_search(
         }
 
         if stop_reason == "tool_use" {
-            // Add assistant's turn to message history
             messages.push(json!({"role": "assistant", "content": content.clone()}));
 
-            // Build tool results for any tool_use blocks
             let mut tool_results: Vec<Value> = vec![];
             for block in &content {
                 if block["type"].as_str() == Some("tool_use") {
                     let tool_id = block["id"].as_str().unwrap_or("").to_string();
-                    // For server-side web_search, Anthropic handles execution.
-                    // If we get here it means we need to return a stub result
-                    // so Claude can continue its reasoning.
                     tool_results.push(json!({
                         "type": "tool_result",
                         "tool_use_id": tool_id,
@@ -169,7 +160,6 @@ async fn call_claude_with_web_search(
             continue;
         }
 
-        // Any other stop reason — return what we have
         if !text_so_far.is_empty() {
             return Ok(text_so_far);
         }
@@ -183,11 +173,9 @@ fn parse_profile_response(
     text: &str,
     broker_first_name: &str,
 ) -> EnrichmentResult {
-    // Extract JSON from response (Claude may wrap in markdown)
     let json_text = if let (Some(s), Some(e)) = (text.find('{'), text.rfind('}')) {
         &text[s..=e]
     } else {
-        // No JSON found — generate a basic script without web data
         return EnrichmentResult {
             contact_id: contact.id,
             company_name: contact.company_name.clone(),
@@ -294,7 +282,7 @@ fn error_result(contact: &ContactRow, err: &str) -> EnrichmentResult {
     }
 }
 
-fn write_to_db(db_path: &str, result: &EnrichmentResult) {
+async fn write_to_db(state: &AppState, result: &EnrichmentResult) {
     let now = chrono::Utc::now().timestamp();
     let data = serde_json::json!({
         "commodities": result.commodities,
@@ -308,12 +296,13 @@ fn write_to_db(db_path: &str, result: &EnrichmentResult) {
         "web_searched": result.web_searched,
         "enriched_at": now,
     });
-    if let Ok(conn) = rusqlite::Connection::open(db_path) {
-        let status = if result.error.is_some() { "failed" } else { "done" };
+    let status = if result.error.is_some() { "failed" } else { "done" };
+    if let Ok(conn) = state.conn() {
         let _ = conn.execute(
             "UPDATE contacts SET enrichment_status=?1, enrichment_data=?2, enriched_at=?3 WHERE id=?4",
-            params![status, data.to_string(), now, result.contact_id],
-        );
+            libsql::params![status, data.to_string(), now, result.contact_id],
+        )
+        .await;
     }
 }
 
@@ -324,10 +313,10 @@ pub async fn enrich_contact(
     state: State<'_, AppState>,
     contact_id: i64,
 ) -> Result<EnrichmentResult, String> {
-    let (row, broker, db_path) = load_one(&state, contact_id)?;
+    let (row, broker) = load_one(&state, contact_id).await?;
     let api_key = get_raw_api_key().ok_or("No API key set — add it in Settings")?;
     let result = research_company(&api_key, &row, &broker).await;
-    write_to_db(&db_path, &result);
+    write_to_db(&state, &result).await;
     Ok(result)
 }
 
@@ -336,7 +325,7 @@ pub async fn enrich_all_contacts(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<EnrichmentResult>, String> {
-    let (rows, broker, db_path) = load_unenriched(&state)?;
+    let (rows, broker) = load_unenriched(&state).await?;
 
     if rows.is_empty() {
         return Ok(vec![]);
@@ -349,7 +338,6 @@ pub async fn enrich_all_contacts(
 
     let mut all: Vec<EnrichmentResult> = Vec::with_capacity(rows.len());
 
-    // Process PARALLEL contacts at a time
     for chunk in rows.chunks(PARALLEL) {
         let futures: Vec<_> = chunk.iter().map(|row| {
             let key = api_key.clone();
@@ -361,7 +349,7 @@ pub async fn enrich_all_contacts(
         let results = join_all(futures).await;
 
         for result in results {
-            write_to_db(&db_path, &result);
+            write_to_db(&state, &result).await;
             let _ = app.emit("enrich-progress", &result);
             all.push(result);
         }
@@ -372,50 +360,66 @@ pub async fn enrich_all_contacts(
 
 // ── DB loaders ────────────────────────────────────────────────────────
 
-fn load_one(state: &AppState, id: i64) -> Result<(ContactRow, String, String), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
-    let row = conn.query_row(
+async fn load_one(state: &AppState, id: i64) -> Result<(ContactRow, String), String> {
+    let conn = state.conn()?;
+    let mut rows = conn.query(
         "SELECT id, company_name, city, state, roles, commodities FROM contacts WHERE id=?1",
-        params![id],
-        |r| Ok(ContactRow {
-            id: r.get(0)?, company_name: r.get(1)?,
-            city: r.get(2)?, state: r.get(3)?,
-            roles: r.get(4)?, commodities: r.get(5)?,
-        }),
-    ).map_err(|e| e.to_string())?;
-    let cfg = state.local_cfg.lock().map_err(|e| e.to_string())?;
-    let broker = broker_first_name(&cfg);
-    Ok((row, broker, cfg.db_path.clone()))
+        libsql::params![id],
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let row = rows.next().await.map_err(|e| e.to_string())?
+        .ok_or_else(|| "Contact not found".to_string())?;
+
+    let contact = ContactRow {
+        id:           row.get::<i64>(0).map_err(|e| e.to_string())?,
+        company_name: row.get::<String>(1).map_err(|e| e.to_string())?,
+        city:         row.get::<Option<String>>(2).map_err(|e| e.to_string())?,
+        state:        row.get::<Option<String>>(3).map_err(|e| e.to_string())?,
+        roles:        row.get::<Option<String>>(4).map_err(|e| e.to_string())?,
+        commodities:  row.get::<Option<String>>(5).map_err(|e| e.to_string())?,
+    };
+    let broker = broker_first_name(state);
+    Ok((contact, broker))
 }
 
-fn load_unenriched(state: &AppState) -> Result<(Vec<ContactRow>, String, String), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
-    let mut stmt = conn.prepare(
+async fn load_unenriched(state: &AppState) -> Result<(Vec<ContactRow>, String), String> {
+    let conn = state.conn()?;
+    let mut rows = conn.query(
         "SELECT id, company_name, city, state, roles, commodities \
          FROM contacts WHERE status != 'deleted' AND enrichment_status IS NULL \
          ORDER BY company_name LIMIT 500",
-    ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([], |r| Ok(ContactRow {
-        id: r.get(0)?, company_name: r.get(1)?,
-        city: r.get(2)?, state: r.get(3)?,
-        roles: r.get(4)?, commodities: r.get(5)?,
-    }))
-    .and_then(|r| r.collect::<Result<Vec<_>, _>>())
+        libsql::params![],
+    )
+    .await
     .map_err(|e| e.to_string())?;
-    let cfg = state.local_cfg.lock().map_err(|e| e.to_string())?;
-    let broker = broker_first_name(&cfg);
-    Ok((rows, broker, cfg.db_path.clone()))
+
+    let mut contacts = Vec::new();
+    while let Some(row) = rows.next().await.map_err(|e| e.to_string())? {
+        contacts.push(ContactRow {
+            id:           row.get::<i64>(0).map_err(|e| e.to_string())?,
+            company_name: row.get::<String>(1).map_err(|e| e.to_string())?,
+            city:         row.get::<Option<String>>(2).map_err(|e| e.to_string())?,
+            state:        row.get::<Option<String>>(3).map_err(|e| e.to_string())?,
+            roles:        row.get::<Option<String>>(4).map_err(|e| e.to_string())?,
+            commodities:  row.get::<Option<String>>(5).map_err(|e| e.to_string())?,
+        });
+    }
+
+    let broker = broker_first_name(state);
+    Ok((contacts, broker))
 }
 
-fn broker_first_name(cfg: &crate::LocalConfig) -> String {
-    cfg.active_user.as_ref()
-        .and_then(|id| {
-            crate::commands::users::all_users()
-                .into_iter()
-                .find(|u| &u.id == id)
-                .map(|u| u.display_name.split_whitespace().next().unwrap_or(&u.display_name).to_string())
+fn broker_first_name(state: &AppState) -> String {
+    state.local_cfg.lock().ok()
+        .and_then(|cfg| {
+            cfg.active_user.as_ref().and_then(|id| {
+                crate::commands::users::all_users()
+                    .into_iter()
+                    .find(|u| &u.id == id)
+                    .map(|u| u.display_name.split_whitespace().next().unwrap_or(&u.display_name).to_string())
+            })
         })
         .unwrap_or_else(|| "Francisco".to_string())
 }

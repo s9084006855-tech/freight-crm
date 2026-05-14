@@ -1,103 +1,64 @@
 use crate::{AppState, StartupCheck, StartupCheckResult};
-use std::path::Path;
 use tauri::State;
 
 #[tauri::command]
-pub fn run_startup_check(
+pub async fn run_startup_check(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<StartupCheckResult, String> {
     let mut checks: Vec<StartupCheck> = vec![];
 
-    // 1. DB file exists and is accessible
-    let db_path = state
-        .local_cfg
-        .lock()
-        .map(|c| c.db_path.clone())
-        .unwrap_or_default();
-
-    let db_exists = !db_path.is_empty() && Path::new(&db_path).exists();
-    checks.push(StartupCheck {
-        name: "Database file".to_string(),
-        passed: db_exists,
-        message: if db_exists {
-            format!("Found at {}", db_path)
-        } else {
-            format!("Not found at {}", db_path)
-        },
-        can_auto_repair: true,
-        repair_key: Some("init_db".to_string()),
-    });
-
-    // 2. DB connection initialized
-    let db_connected = state.db.lock().map(|g| g.is_some()).unwrap_or(false);
-    checks.push(StartupCheck {
-        name: "Database connection".to_string(),
-        passed: db_connected,
-        message: if db_connected {
-            "Connected".to_string()
-        } else {
-            "Not connected — will attempt to reconnect".to_string()
-        },
-        can_auto_repair: true,
-        repair_key: Some("init_db".to_string()),
-    });
-
-    // 3. Schema version
-    let schema_ok = if db_connected {
-        let db = state.db.lock().unwrap();
-        if let Some(conn) = db.as_ref() {
-            conn.query_row(
-                "SELECT COUNT(*) FROM schema_migrations WHERE version >= 1",
-                [],
-                |r| r.get::<_, i64>(0),
-            )
-            .map(|n| n > 0)
-            .unwrap_or(false)
-        } else {
-            false
-        }
-    } else {
-        false
+    // 1. Turso configured
+    let has_creds = {
+        let cfg = state.local_cfg.lock().map_err(|e| e.to_string())?;
+        !cfg.turso_url.is_empty() && !cfg.turso_token.is_empty()
     };
     checks.push(StartupCheck {
-        name: "Database schema".to_string(),
-        passed: schema_ok,
-        message: if schema_ok {
-            "Schema up to date".to_string()
-        } else {
-            "Schema missing or outdated".to_string()
-        },
-        can_auto_repair: true,
-        repair_key: Some("init_db".to_string()),
-    });
-
-    // 4. Sync folder accessible
-    let sync_dir = Path::new(&db_path).parent().map(|p| p.exists()).unwrap_or(false);
-    checks.push(StartupCheck {
-        name: "Sync folder".to_string(),
-        passed: sync_dir,
-        message: if sync_dir {
-            "Accessible".to_string()
-        } else {
-            "Sync folder not found. iCloud Drive may not be set up, or sync path has changed.".to_string()
-        },
+        name: "Turso credentials".to_string(),
+        passed: has_creds,
+        message: if has_creds { "Configured".into() } else { "Not configured — enter URL and token in Settings".into() },
         can_auto_repair: false,
         repair_key: None,
     });
 
-    // 5. Tesseract self-test
-    let tess_check = crate::commands::ocr::test_ocr_engines(app);
-    let (tess_ok, tess_msg) = match tess_check {
+    // 2. DB connected
+    let connected = state.db.lock().map_err(|e| e.to_string())?.is_some();
+    checks.push(StartupCheck {
+        name: "Database connection".to_string(),
+        passed: connected,
+        message: if connected { "Connected to Turso".into() } else { "Not connected".into() },
+        can_auto_repair: false,
+        repair_key: None,
+    });
+
+    // 3. Schema
+    let schema_ok = if connected {
+        match state.conn() {
+            Ok(conn) => conn.query(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version >= 1", ()
+            ).await.ok()
+                .and_then(|mut r| futures::executor::block_on(r.next()).ok().flatten())
+                .and_then(|row| row.get::<i64>(0).ok())
+                .map(|n| n > 0)
+                .unwrap_or(false),
+            Err(_) => false,
+        }
+    } else { false };
+    checks.push(StartupCheck {
+        name: "Database schema".to_string(),
+        passed: schema_ok,
+        message: if schema_ok { "Up to date".into() } else { "Schema missing".into() },
+        can_auto_repair: false,
+        repair_key: None,
+    });
+
+    // 4. OCR
+    let (tess_ok, tess_msg) = match crate::commands::ocr::test_ocr_engines(app) {
         Ok(ref s) => (
             s.tesseract_available || s.apple_vision_available,
-            if s.apple_vision_available {
-                "Apple Vision OCR: available".to_string()
-            } else if s.tesseract_available {
-                "Bundled Tesseract: available".to_string()
-            } else {
-                "No OCR engine available. Run scripts/bundle_tesseract.sh to enable image import.".to_string()
-            },
+            if s.apple_vision_available { "Apple Vision OCR: available".into() }
+            else if s.tesseract_available { "Bundled Tesseract: available".into() }
+            else { "No OCR engine — image import disabled".into() },
         ),
         Err(ref e) => (false, format!("OCR check failed: {}", e)),
     };
@@ -111,18 +72,4 @@ pub fn run_startup_check(
 
     let all_passed = checks.iter().all(|c| c.passed);
     Ok(StartupCheckResult { all_passed, checks })
-}
-
-#[tauri::command]
-pub fn auto_repair(
-    state: State<'_, AppState>,
-    repair_key: String,
-) -> Result<String, String> {
-    match repair_key.as_str() {
-        "init_db" => {
-            crate::commands::settings::initialize_db(state, None)
-                .map(|_| "Database initialized successfully.".to_string())
-        }
-        _ => Err(format!("Unknown repair key: {}", repair_key)),
-    }
 }

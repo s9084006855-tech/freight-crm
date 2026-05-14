@@ -15,7 +15,6 @@ export function DiagnosticsPanel() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [errors, setErrors] = useState<ErrorEntry[]>([]);
   const [ocrStatus, setOcrStatus] = useState<OcrEngineStatus | null>(null);
-  const [integrityResult, setIntegrityResult] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
 
   useEffect(() => {
@@ -29,30 +28,6 @@ export function DiagnosticsPanel() {
     try {
       const status = await db.testOcrEngines();
       setOcrStatus(status);
-    } catch (e) {
-      toast.error(humanError(e));
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const checkIntegrity = async () => {
-    setRunning(true);
-    try {
-      const result = await db.runIntegrityCheck();
-      setIntegrityResult(result);
-    } catch (e) {
-      toast.error(humanError(e));
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const vacuum = async () => {
-    setRunning(true);
-    try {
-      await db.vacuumDb();
-      toast.success("VACUUM completed");
     } catch (e) {
       toast.error(humanError(e));
     } finally {
@@ -92,9 +67,8 @@ export function DiagnosticsPanel() {
         <div className="space-y-1.5 font-mono text-xs">
           <Row label="Version" value={appInfo.app_version} />
           <Row label="Schema version" value={String(appInfo.schema_version)} />
-          <Row label="DB path" value={appInfo.db_path} />
+          <Row label="Turso URL" value={appInfo.turso_url || "(not configured)"} />
           <Row label="Device" value={`${appInfo.device_name} (${appInfo.device_id})`} />
-          <Row label="Sync provider" value={appInfo.sync_provider} />
         </div>
       )}
 
@@ -137,34 +111,14 @@ export function DiagnosticsPanel() {
 
       {tab === "db" && (
         <div className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={checkIntegrity}
-              disabled={running}
-              className="px-4 py-1.5 text-sm font-mono bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded disabled:opacity-50"
-            >
-              Integrity check
-            </button>
-            <button
-              onClick={vacuum}
-              disabled={running}
-              className="px-4 py-1.5 text-sm font-mono bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded disabled:opacity-50"
-            >
-              VACUUM
-            </button>
-            <button
-              onClick={exportBackup}
-              disabled={running}
-              className="px-4 py-1.5 text-sm font-mono bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded disabled:opacity-50"
-            >
-              Export backup
-            </button>
-          </div>
-          {integrityResult && (
-            <pre className="bg-zinc-800 rounded p-3 text-xs font-mono text-zinc-300 whitespace-pre-wrap">
-              {integrityResult}
-            </pre>
-          )}
+          <p className="text-xs text-zinc-600 font-mono">Database is hosted on Turso (cloud). Use Settings to reconfigure.</p>
+          <button
+            onClick={exportBackup}
+            disabled={running}
+            className="px-4 py-1.5 text-sm font-mono bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded disabled:opacity-50"
+          >
+            {running ? "Exporting…" : "Export contacts CSV"}
+          </button>
         </div>
       )}
     </Modal>

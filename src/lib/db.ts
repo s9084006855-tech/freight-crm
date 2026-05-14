@@ -103,16 +103,8 @@ export const testOcrEngines = () =>
 // ── Sync ──────────────────────────────────────────────────────────────
 
 export const getSyncStatus = () => invoke<SyncStatus>("get_sync_status");
-export const refreshFromSync = () => invoke<void>("refresh_from_sync");
-export const forceUnlock = () => invoke<void>("force_unlock");
-export const writeSyncLock = () => invoke<void>("write_sync_lock");
 
 // ── Diagnostics ───────────────────────────────────────────────────────
-
-export const runIntegrityCheck = () =>
-  invoke<string>("run_integrity_check");
-
-export const vacuumDb = () => invoke<void>("vacuum_db");
 
 export const getErrorLog = (limit?: number) =>
   invoke<ErrorEntry[]>("get_error_log", { limit });
@@ -129,8 +121,11 @@ export const getSettings = () =>
 export const updateSetting = (key: string, value: string) =>
   invoke<void>("update_setting", { key, value });
 
-export const initializeDb = (syncPath?: string) =>
-  invoke<void>("initialize_db", { syncPath });
+export const connectTurso = (url: string, token: string) =>
+  invoke<void>("connect_turso", { url, token });
+
+export const migrateLocalToTurso = (sqlitePath: string) =>
+  invoke<string>("migrate_local_to_turso", { sqlitePath });
 
 // ── Keychain ──────────────────────────────────────────────────────────
 
@@ -148,9 +143,6 @@ export const deleteApiKey = () => invoke<void>("delete_api_key");
 
 export const runStartupCheck = () =>
   invoke<StartupCheckResult>("run_startup_check");
-
-export const autoRepair = (repairKey: string) =>
-  invoke<string>("auto_repair", { repairKey });
 
 // ── Users ─────────────────────────────────────────────────────────────
 

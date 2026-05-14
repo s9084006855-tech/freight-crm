@@ -253,16 +253,11 @@ pub struct OcrEngineStatus {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SyncStatus {
-    pub status: String, // green|yellow|red
-    pub last_device_id: Option<String>,
+    pub status: String, // green|red|setup_required
     pub last_device_name: Option<String>,
-    pub last_write_time: Option<i64>,
     pub this_device_id: String,
     pub this_device_name: String,
-    pub sync_path: String,
-    pub is_locked: bool,
-    pub lock_device: Option<String>,
-    pub icloud_accessible: bool,
+    pub sync_path: String, // turso URL
 }
 
 // ── Diagnostics ───────────────────────────────────────────────────────
@@ -283,8 +278,7 @@ pub struct AppInfo {
     pub schema_version: i64,
     pub device_id: String,
     pub device_name: String,
-    pub db_path: String,
-    pub sync_provider: String,
+    pub turso_url: String,
 }
 
 // ── Enrichment ────────────────────────────────────────────────────────

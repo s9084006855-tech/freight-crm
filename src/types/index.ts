@@ -223,15 +223,10 @@ export type SyncStatusColor = "green" | "yellow" | "red";
 
 export interface SyncStatus {
   status: SyncStatusColor;
-  last_device_id?: string;
   last_device_name?: string;
-  last_write_time?: number;
   this_device_id: string;
   this_device_name: string;
   sync_path: string;
-  is_locked: boolean;
-  lock_device?: string;
-  icloud_accessible: boolean;
 }
 
 // ── Diagnostics ───────────────────────────────────────────────────────
@@ -250,8 +245,7 @@ export interface AppInfo {
   schema_version: number;
   device_id: string;
   device_name: string;
-  db_path: string;
-  sync_provider: string;
+  turso_url: string;
 }
 
 // ── Startup ───────────────────────────────────────────────────────────

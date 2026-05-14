@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
@@ -14,45 +13,29 @@ pub use models::*;
 pub struct LocalConfig {
     pub device_id: String,
     pub device_name: String,
-    pub db_path: String,
-    pub last_seen_write_time: i64,
+    #[serde(default)]
+    pub turso_url: String,
+    #[serde(default)]
+    pub turso_token: String,
     #[serde(default)]
     pub active_user: Option<String>,
+    // Kept for one-time migration from local SQLite
+    #[serde(default)]
+    pub db_path: String,
 }
 
 pub struct AppState {
-    pub db: Mutex<Option<Connection>>,
+    pub db: Mutex<Option<libsql::Database>>,
     pub local_cfg: Mutex<LocalConfig>,
     pub local_cfg_path: PathBuf,
 }
 
 impl AppState {
-    pub fn touch_sync(&self) {
-        if let Ok(db_guard) = self.db.lock() {
-            if let Some(conn) = db_guard.as_ref() {
-                if let Ok(cfg) = self.local_cfg.lock() {
-                    let _ = db::touch_sync_metadata(conn, &cfg.device_id, &cfg.device_name);
-                    let _ = self.save_local_config_write_time(conn);
-                }
-            }
-        }
-    }
-
-    fn save_local_config_write_time(&self, conn: &Connection) -> Result<(), String> {
-        let write_time: i64 = conn
-            .query_row(
-                "SELECT CAST(value AS INTEGER) FROM sync_metadata WHERE key='last_write_time'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        if let Ok(mut cfg) = self.local_cfg.lock() {
-            cfg.last_seen_write_time = write_time;
-            let json = serde_json::to_string(&*cfg).map_err(|e| e.to_string())?;
-            std::fs::write(&self.local_cfg_path, json).map_err(|e| e.to_string())?;
-        }
-        Ok(())
+    pub fn conn(&self) -> Result<libsql::Connection, String> {
+        let guard = self.db.lock().map_err(|e| e.to_string())?;
+        let db = guard.as_ref()
+            .ok_or_else(|| "Not connected to Turso. Enter your database URL and token in Settings.".to_string())?;
+        db.connect().map_err(|e| e.to_string())
     }
 }
 
@@ -74,27 +57,36 @@ pub fn run() {
             let cfg_path = app_data.join("local_config.json");
             let local_cfg = load_or_create_local_config(&cfg_path);
 
-            let conn = db::open_and_init(&local_cfg.db_path).ok();
+            // Connect to Turso if credentials are saved
+            let turso_db = if !local_cfg.turso_url.is_empty() && !local_cfg.turso_token.is_empty() {
+                let url = local_cfg.turso_url.clone();
+                let token = local_cfg.turso_token.clone();
+                // Build a blocking runtime just for the initial async connect
+                match tokio::runtime::Runtime::new() {
+                    Ok(rt) => rt.block_on(async {
+                        match libsql::Builder::new_remote(url, token).build().await {
+                            Ok(db) => {
+                                if let Ok(conn) = db.connect() {
+                                    let _ = crate::db::init_schema_async(&conn).await;
+                                }
+                                Some(db)
+                            }
+                            Err(_) => None,
+                        }
+                    }),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
 
             let state = AppState {
-                db: Mutex::new(conn),
+                db: Mutex::new(turso_db),
                 local_cfg: Mutex::new(local_cfg),
                 local_cfg_path: cfg_path,
             };
             app.manage(state);
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                if let Some(state) = window.try_state::<AppState>() {
-                    if let Ok(db_guard) = state.db.lock() {
-                        if let Some(conn) = db_guard.as_ref() {
-                            // Checkpoint WAL so Dropbox/iCloud syncs a complete .sqlite file
-                            let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-                        }
-                    }
-                }
-            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::contacts::get_contacts,
@@ -119,24 +111,19 @@ pub fn run() {
             commands::ocr::ocr_image,
             commands::ocr::test_ocr_engines,
             commands::sync::get_sync_status,
-            commands::sync::refresh_from_sync,
-            commands::sync::force_unlock,
-            commands::sync::write_sync_lock,
-            commands::diagnostics::run_integrity_check,
-            commands::diagnostics::vacuum_db,
             commands::diagnostics::get_error_log,
             commands::diagnostics::log_error,
             commands::diagnostics::export_backup,
             commands::diagnostics::get_app_info,
             commands::settings::get_settings,
             commands::settings::update_setting,
-            commands::settings::initialize_db,
+            commands::settings::connect_turso,
+            commands::settings::migrate_local_to_turso,
             commands::keychain::store_api_key,
             commands::keychain::get_api_key_masked,
             commands::keychain::has_api_key,
             commands::keychain::delete_api_key,
             commands::startup::run_startup_check,
-            commands::startup::auto_repair,
             commands::users::get_users,
             commands::users::get_active_user,
             commands::users::set_active_user,
@@ -160,31 +147,15 @@ fn load_or_create_local_config(path: &PathBuf) -> LocalConfig {
     let device_name = std::process::Command::new("hostname")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "My Mac".to_string());
-
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-
-    // Prefer Dropbox (newer CloudStorage path first, then legacy ~/Dropbox)
-    let dropbox_candidates = [
-        home.join("Library/CloudStorage/Dropbox/FreightCRM"),
-        home.join("Library/CloudStorage/Dropbox-Personal/FreightCRM"),
-        home.join("Dropbox/FreightCRM"),
-    ];
-    let sync_dir = dropbox_candidates
-        .iter()
-        .find(|p| p.parent().map(|d| d.exists()).unwrap_or(false))
-        .cloned()
-        .unwrap_or_else(|| home.join("Library/Mobile Documents/com~apple~CloudDocs/FreightCRM"));
-
-    std::fs::create_dir_all(&sync_dir).ok();
-    let db_path = sync_dir.join("freight_crm.sqlite");
+        .unwrap_or_else(|_| "My Device".to_string());
 
     let cfg = LocalConfig {
         device_id,
         device_name,
-        db_path: db_path.to_string_lossy().to_string(),
-        last_seen_write_time: 0,
+        turso_url: String::new(),
+        turso_token: String::new(),
         active_user: None,
+        db_path: String::new(),
     };
 
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {

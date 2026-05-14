@@ -11,8 +11,10 @@ export function SettingsView({ activeUser }: { activeUser: UserProfile }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [apiKeyMasked, setApiKeyMasked] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
-  const [syncPath, setSyncPath] = useState("");
   const [deviceName, setDeviceName] = useState("");
+  const [tursoUrl, setTursoUrl] = useState("");
+  const [tursoToken, setTursoToken] = useState("");
+  const [migratePath, setMigratePath] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
@@ -21,23 +23,51 @@ export function SettingsView({ activeUser }: { activeUser: UserProfile }) {
   }, []);
 
   useEffect(() => {
-    setSyncPath(settings.sync_path ?? "");
     setDeviceName(settings.device_name ?? "");
+    setTursoUrl(settings.turso_url ?? "");
   }, [settings]);
 
   const saveSetting = async (key: string, value: string) => {
     setSaving(key);
     try {
-      if (key === "sync_path") {
-        // Switch the DB connection to the new path — don't just save the string
-        await db.initializeDb(value.trim() || undefined);
-        setSettings((s) => ({ ...s, [key]: value }));
-        toast.success("Sync path updated — database moved to new location");
-      } else {
-        await db.updateSetting(key, value);
-        setSettings((s) => ({ ...s, [key]: value }));
-        toast.success("Saved");
-      }
+      await db.updateSetting(key, value);
+      setSettings((s) => ({ ...s, [key]: value }));
+      toast.success("Saved");
+    } catch (e) {
+      toast.error(humanError(e));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const connectTurso = async () => {
+    if (!tursoUrl.trim() || !tursoToken.trim()) {
+      toast.error("Both URL and token are required");
+      return;
+    }
+    setSaving("turso");
+    try {
+      await db.connectTurso(tursoUrl.trim(), tursoToken.trim());
+      const fresh = await db.getSettings();
+      setSettings(fresh);
+      toast.success("Connected to Turso — database ready");
+    } catch (e) {
+      toast.error(humanError(e));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const migrateToTurso = async () => {
+    if (!migratePath.trim()) {
+      toast.error("Enter the path to your local SQLite file");
+      return;
+    }
+    setSaving("migrate");
+    try {
+      const msg = await db.migrateLocalToTurso(migratePath.trim());
+      toast.success(msg);
+      setMigratePath("");
     } catch (e) {
       toast.error(humanError(e));
     } finally {
@@ -79,25 +109,63 @@ export function SettingsView({ activeUser }: { activeUser: UserProfile }) {
       <h1 className="text-sm font-semibold text-zinc-100 mb-6">Settings</h1>
 
       <div className="space-y-8 max-w-lg">
-        {/* Sync path */}
+        {/* Turso database */}
         <section>
-          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Sync path</h2>
+          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Turso database</h2>
           <p className="text-xs text-zinc-600 mb-3">
-            Folder where the database is stored. Defaults to Dropbox if installed, otherwise iCloud Drive. Change only if your Dropbox path is non-standard.
+            Cloud database — syncs instantly across all your devices. Get your URL and token from{" "}
+            <span className="text-zinc-400">turso.tech</span> after creating a database.
+          </p>
+          {settings.turso_url && (
+            <p className="text-xs font-mono text-emerald-500 mb-3">
+              Connected: {settings.turso_url}
+            </p>
+          )}
+          <div className="space-y-2">
+            <input
+              value={tursoUrl}
+              onChange={(e) => setTursoUrl(e.target.value)}
+              placeholder="libsql://your-db.turso.io"
+              className="w-full h-8 px-2.5 text-xs font-mono bg-zinc-800 border border-zinc-700 rounded text-zinc-100 outline-none focus:border-zinc-500"
+            />
+            <div className="flex gap-2">
+              <input
+                value={tursoToken}
+                onChange={(e) => setTursoToken(e.target.value)}
+                type="password"
+                placeholder="eyJhbGci… (auth token)"
+                className="flex-1 h-8 px-2.5 text-xs font-mono bg-zinc-800 border border-zinc-700 rounded text-zinc-100 outline-none focus:border-zinc-500"
+              />
+              <button
+                onClick={connectTurso}
+                disabled={saving === "turso"}
+                className="px-3 py-1.5 text-xs font-mono bg-indigo-700 hover:bg-indigo-600 text-white rounded disabled:opacity-50"
+              >
+                {saving === "turso" ? "Connecting…" : "Connect"}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* One-time migration */}
+        <section>
+          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Migrate from local SQLite</h2>
+          <p className="text-xs text-zinc-600 mb-3">
+            One-time import of contacts from your old Dropbox/iCloud SQLite file into Turso. Run once per device.
           </p>
           <div className="flex gap-2">
             <input
-              value={syncPath}
-              onChange={(e) => setSyncPath(e.target.value)}
-              placeholder="~/Library/Mobile Documents/com~apple~CloudDocs/FreightCRM/"
+              value={migratePath}
+              onChange={(e) => setMigratePath(e.target.value)}
+              placeholder="/Users/you/Dropbox/FreightCRM/freight_crm.sqlite"
               className="flex-1 h-8 px-2.5 text-xs font-mono bg-zinc-800 border border-zinc-700 rounded text-zinc-100 outline-none focus:border-zinc-500"
             />
             <button
-              onClick={() => saveSetting("sync_path", syncPath)}
-              disabled={saving === "sync_path"}
+              onClick={migrateToTurso}
+              disabled={saving === "migrate"}
               className="px-3 py-1.5 text-xs font-mono bg-zinc-700 hover:bg-zinc-600 text-zinc-100 rounded disabled:opacity-50"
             >
-              Save
+              {saving === "migrate" ? "Migrating…" : "Migrate"}
             </button>
           </div>
         </section>

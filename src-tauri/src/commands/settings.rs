@@ -1,41 +1,35 @@
 use crate::AppState;
-use crate::commands::conn_err;
-use rusqlite::params;
 use std::collections::HashMap;
 use tauri::State;
 
 #[tauri::command]
-pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+pub async fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
+    let conn = state.conn()?;
+
+    let mut stmt_rows = conn.query("SELECT key, value FROM app_settings", ())
+        .await.map_err(|e| e.to_string())?;
+
+    let mut map: HashMap<String, String> = HashMap::new();
+    while let Some(row) = stmt_rows.next().await.map_err(|e| e.to_string())? {
+        let k: String = row.get::<String>(0).map_err(|e| e.to_string())?;
+        let v: String = row.get::<String>(1).map_err(|e| e.to_string())?;
+        map.insert(k, v);
+    }
+
     let cfg = state.local_cfg.lock().map_err(|e| e.to_string())?;
-
-    let mut stmt = conn
-        .prepare("SELECT key, value FROM app_settings")
-        .map_err(|e| e.to_string())?;
-
-    let mut map: HashMap<String, String> = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    // Inject machine-specific values
-    map.insert("device_id".to_string(), cfg.device_id.clone());
-    map.insert("device_name".to_string(), cfg.device_name.clone());
-    map.insert("db_path".to_string(), cfg.db_path.clone());
-    map.insert("app_version".to_string(), env!("CARGO_PKG_VERSION").to_string());
-
+    map.insert("device_id".into(),   cfg.device_id.clone());
+    map.insert("device_name".into(), cfg.device_name.clone());
+    map.insert("turso_url".into(),   cfg.turso_url.clone());
+    map.insert("app_version".into(), env!("CARGO_PKG_VERSION").to_string());
     Ok(map)
 }
 
 #[tauri::command]
-pub fn update_setting(
+pub async fn update_setting(
     state: State<'_, AppState>,
     key: String,
     value: String,
 ) -> Result<(), String> {
-    // Device name is machine-local — update local config, not DB
     if key == "device_name" {
         let mut cfg = state.local_cfg.lock().map_err(|e| e.to_string())?;
         cfg.device_name = value;
@@ -43,74 +37,140 @@ pub fn update_setting(
         return std::fs::write(&state.local_cfg_path, json).map_err(|e| e.to_string());
     }
 
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.as_ref().ok_or_else(conn_err)?;
+    let conn = state.conn()?;
     conn.execute(
         "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?1, ?2)",
-        params![key, value],
-    )
-    .map_err(|e| e.to_string())?;
-    drop(db);
-    state.touch_sync();
+        libsql::params![key, value],
+    ).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
+/// Connect to Turso — called from Settings when user enters URL + token
 #[tauri::command]
-pub fn initialize_db(
+pub async fn connect_turso(
     state: State<'_, AppState>,
-    sync_path: Option<String>,
+    url: String,
+    token: String,
 ) -> Result<(), String> {
-    // Expand leading ~ in sync_path to the home directory
-    let sync_path_expanded = sync_path.map(|p| {
-        if p.starts_with("~/") {
-            dirs::home_dir()
-                .map(|h| h.join(&p[2..]).to_string_lossy().to_string())
-                .unwrap_or(p)
-        } else {
-            p
-        }
-    });
+    let url = url.trim().to_string();
+    let token = token.trim().to_string();
 
-    // Determine the DB path: use provided sync_path or existing config
-    let new_db_path = if let Some(ref path) = sync_path_expanded {
-        let dir = std::path::Path::new(path);
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        dir.join("freight_crm.sqlite")
-            .to_string_lossy()
-            .to_string()
-    } else {
-        state
-            .local_cfg
-            .lock()
-            .map_err(|e| e.to_string())?
-            .db_path
-            .clone()
-    };
+    if url.is_empty() || token.is_empty() {
+        return Err("URL and token are required".into());
+    }
 
-    let conn = crate::db::open_and_init(&new_db_path).map_err(|e| e.to_string())?;
+    let db = libsql::Builder::new_remote(url.clone(), token.clone())
+        .build()
+        .await
+        .map_err(|e| format!("Failed to connect: {}", e))?;
 
-    let mut db_guard = state.db.lock().map_err(|e| e.to_string())?;
-    *db_guard = Some(conn);
-    drop(db_guard);
+    let conn = db.connect().map_err(|e| e.to_string())?;
+    crate::db::init_schema_async(&conn).await.map_err(|e| e.to_string())?;
 
-    // Update local config with new path
+    // Save credentials to local config
     {
         let mut cfg = state.local_cfg.lock().map_err(|e| e.to_string())?;
-        cfg.db_path = new_db_path.clone();
+        cfg.turso_url   = url;
+        cfg.turso_token = token;
         let json = serde_json::to_string(&*cfg).map_err(|e| e.to_string())?;
         std::fs::write(&state.local_cfg_path, json).map_err(|e| e.to_string())?;
     }
 
-    // Persist expanded sync_path to app_settings in DB if provided
-    if let Some(path) = sync_path_expanded {
-        let db2 = state.db.lock().map_err(|e| e.to_string())?;
-        if let Some(conn2) = db2.as_ref() {
-            conn2.execute(
-                "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('sync_path', ?1)",
-                params![path],
-            ).ok();
-        }
+    // Swap in the new database
+    let mut guard = state.db.lock().map_err(|e| e.to_string())?;
+    *guard = Some(db);
+    Ok(())
+}
+
+/// One-time migration: reads from local SQLite file → pushes to Turso
+#[tauri::command]
+pub async fn migrate_local_to_turso(
+    state: State<'_, AppState>,
+    sqlite_path: String,
+) -> Result<String, String> {
+    let local = rusqlite::Connection::open(&sqlite_path)
+        .map_err(|e| format!("Cannot open local SQLite: {}", e))?;
+
+    // Collect all rows synchronously before any .await (rusqlite types are not Send)
+    type ContactRow = (
+        Option<String>, String, String, Option<String>, Option<String>,
+        Option<String>, Option<String>, Option<String>, Option<String>, Option<String>,
+        Option<String>, Option<String>, Option<String>, Option<String>, Option<String>,
+        String, i32, String, Option<String>, i64, i64, Option<i64>,
+        Option<String>, Option<String>, Option<i64>,
+    );
+    type ActivityRow = (
+        i64, String, Option<String>, Option<String>, Option<i64>,
+        Option<i64>, i32, i64, Option<String>,
+    );
+
+    let contact_rows: Vec<ContactRow> = {
+        let mut stmt = local.prepare(
+            "SELECT bbid, company_name, company_name_search, phone, phone_normalized,
+                    fax, email, website, street, city, state, zip, country, roles, commodities,
+                    status, priority, source, notes, created_at, updated_at, last_contacted_at,
+                    enrichment_status, enrichment_data, enriched_at
+             FROM contacts WHERE status != 'deleted'"
+        ).map_err(|e| e.to_string())?;
+        stmt.query_map([], |r| Ok((
+            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+            r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
+            r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?,
+            r.get(15)?, r.get(16)?, r.get(17)?, r.get(18)?, r.get(19)?,
+            r.get(20)?, r.get(21)?, r.get(22)?, r.get(23)?, r.get(24)?,
+        )))
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| e.to_string())?
+    };
+
+    let activity_rows: Vec<ActivityRow> = {
+        let mut stmt = local.prepare(
+            "SELECT contact_id, type, outcome, notes, duration_sec,
+                    follow_up_at, follow_up_done, created_at, user_id
+             FROM activities"
+        ).map_err(|e| e.to_string())?;
+        stmt.query_map([], |r| Ok((
+            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+            r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?,
+        )))
+        .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| e.to_string())?
+    };
+
+    // All rusqlite work done — now do async Turso inserts
+    let conn = state.conn()?;
+    let mut contacts_migrated = 0i64;
+    let mut activities_migrated = 0i64;
+
+    for r in contact_rows {
+        conn.execute(
+            "INSERT OR IGNORE INTO contacts
+             (bbid, company_name, company_name_search, phone, phone_normalized,
+              fax, email, website, street, city, state, zip, country, roles, commodities,
+              status, priority, source, notes, created_at, updated_at, last_contacted_at,
+              enrichment_status, enrichment_data, enriched_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
+            libsql::params![
+                r.0, r.1, r.2, r.3, r.4, r.5, r.6, r.7, r.8, r.9,
+                r.10, r.11, r.12, r.13, r.14, r.15, r.16 as i64, r.17, r.18,
+                r.19, r.20, r.21, r.22, r.23, r.24,
+            ],
+        ).await.map_err(|e| e.to_string())?;
+        contacts_migrated += 1;
     }
 
-    Ok(())
+    for r in activity_rows {
+        conn.execute(
+            "INSERT OR IGNORE INTO activities
+             (contact_id, type, outcome, notes, duration_sec, follow_up_at, follow_up_done, created_at, user_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            libsql::params![r.0, r.1, r.2, r.3, r.4, r.5, r.6 as i64, r.7, r.8],
+        ).await.map_err(|e| e.to_string())?;
+        activities_migrated += 1;
+    }
+
+    Ok(format!(
+        "Migration complete: {} contacts, {} activities",
+        contacts_migrated, activities_migrated
+    ))
 }
