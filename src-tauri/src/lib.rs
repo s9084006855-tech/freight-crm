@@ -163,9 +163,21 @@ fn load_or_create_local_config(path: &PathBuf) -> LocalConfig {
         .unwrap_or_else(|_| "My Mac".to_string());
 
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    let icloud = home
-        .join("Library/Mobile Documents/com~apple~CloudDocs/FreightCRM");
-    let db_path = icloud.join("freight_crm.sqlite");
+
+    // Prefer Dropbox (newer CloudStorage path first, then legacy ~/Dropbox)
+    let dropbox_candidates = [
+        home.join("Library/CloudStorage/Dropbox/FreightCRM"),
+        home.join("Library/CloudStorage/Dropbox-Personal/FreightCRM"),
+        home.join("Dropbox/FreightCRM"),
+    ];
+    let sync_dir = dropbox_candidates
+        .iter()
+        .find(|p| p.parent().map(|d| d.exists()).unwrap_or(false))
+        .cloned()
+        .unwrap_or_else(|| home.join("Library/Mobile Documents/com~apple~CloudDocs/FreightCRM"));
+
+    std::fs::create_dir_all(&sync_dir).ok();
+    let db_path = sync_dir.join("freight_crm.sqlite");
 
     let cfg = LocalConfig {
         device_id,

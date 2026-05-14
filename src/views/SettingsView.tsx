@@ -81,9 +81,9 @@ export function SettingsView({ activeUser }: { activeUser: UserProfile }) {
       <div className="space-y-8 max-w-lg">
         {/* Sync path */}
         <section>
-          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">iCloud sync path</h2>
+          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Sync path</h2>
           <p className="text-xs text-zinc-600 mb-3">
-            Path to your iCloud Drive folder where the database is stored. Leave blank to use the default (~/ iCloud Drive/FreightCRM/).
+            Folder where the database is stored. Defaults to Dropbox if installed, otherwise iCloud Drive. Change only if your Dropbox path is non-standard.
           </p>
           <div className="flex gap-2">
             <input
