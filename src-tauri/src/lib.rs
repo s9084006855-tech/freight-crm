@@ -57,27 +57,8 @@ pub fn run() {
             let cfg_path = app_data.join("local_config.json");
             let local_cfg = load_or_create_local_config(&cfg_path);
 
-            // Connect to Turso if credentials are saved
-            let turso_db = if !local_cfg.turso_url.is_empty() && !local_cfg.turso_token.is_empty() {
-                let url = local_cfg.turso_url.clone();
-                let token = local_cfg.turso_token.clone();
-                tauri::async_runtime::block_on(async {
-                    match libsql::Builder::new_remote(url, token).build().await {
-                        Ok(db) => {
-                            if let Ok(conn) = db.connect() {
-                                let _ = crate::db::init_schema_async(&conn).await;
-                            }
-                            Some(db)
-                        }
-                        Err(_) => None,
-                    }
-                })
-            } else {
-                None
-            };
-
             let state = AppState {
-                db: Mutex::new(turso_db),
+                db: Mutex::new(None),
                 local_cfg: Mutex::new(local_cfg),
                 local_cfg_path: cfg_path,
             };
