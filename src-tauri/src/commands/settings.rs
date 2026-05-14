@@ -60,9 +60,19 @@ pub fn initialize_db(
     state: State<'_, AppState>,
     sync_path: Option<String>,
 ) -> Result<(), String> {
+    // Expand leading ~ in sync_path to the home directory
+    let sync_path_expanded = sync_path.map(|p| {
+        if p.starts_with("~/") {
+            dirs::home_dir()
+                .map(|h| h.join(&p[2..]).to_string_lossy().to_string())
+                .unwrap_or(p)
+        } else {
+            p
+        }
+    });
+
     // Determine the DB path: use provided sync_path or existing config
-    let new_db_path = if let Some(ref path) = sync_path {
-        // sync_path is a directory; append the DB filename
+    let new_db_path = if let Some(ref path) = sync_path_expanded {
         let dir = std::path::Path::new(path);
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         dir.join("freight_crm.sqlite")
@@ -91,8 +101,8 @@ pub fn initialize_db(
         std::fs::write(&state.local_cfg_path, json).map_err(|e| e.to_string())?;
     }
 
-    // Persist sync_path to app_settings in DB if provided
-    if let Some(path) = sync_path {
+    // Persist expanded sync_path to app_settings in DB if provided
+    if let Some(path) = sync_path_expanded {
         let db2 = state.db.lock().map_err(|e| e.to_string())?;
         if let Some(conn2) = db2.as_ref() {
             conn2.execute(
