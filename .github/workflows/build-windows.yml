@@ -38,6 +38,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Ensure vision_ocr placeholder exists
+        run: |
+          mkdir -p src-tauri/resources
+          if [ ! -f src-tauri/resources/vision_ocr ]; then
+            touch src-tauri/resources/vision_ocr
+          fi
+
       - name: Build Mac app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -74,6 +81,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
+
+      - name: Ensure vision_ocr placeholder exists
+        run: |
+          mkdir -p src-tauri/resources
+          if not exist src-tauri\resources\vision_ocr (echo. > src-tauri\resources\vision_ocr)
+        shell: cmd
 
       - name: Build Windows app
         uses: tauri-apps/tauri-action@v0

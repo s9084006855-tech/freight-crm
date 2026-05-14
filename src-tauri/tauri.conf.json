@@ -46,7 +46,6 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/tesseract/**/*": "tesseract/",
       "resources/vision_ocr": "vision_ocr"
     },
     "macOS": {
