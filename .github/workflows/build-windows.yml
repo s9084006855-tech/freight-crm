@@ -6,15 +6,17 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version (e.g. 0.2.0)'
-        required: true
+      windows_only:
+        description: 'Build Windows only'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   build-mac:
+    if: ${{ !inputs.windows_only }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,16 +36,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          cache-on-failure: true
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Ensure vision_ocr placeholder exists
+      - name: Ensure resources exist
         run: |
           mkdir -p src-tauri/resources
-          if [ ! -f src-tauri/resources/vision_ocr ]; then
-            touch src-tauri/resources/vision_ocr
-          fi
+          [ -f src-tauri/resources/vision_ocr ] || touch src-tauri/resources/vision_ocr
 
       - name: Build Mac app
         uses: tauri-apps/tauri-action@v0
@@ -57,6 +58,7 @@ jobs:
           releaseBody: 'Auto-update release'
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
 
   build-windows:
     runs-on: windows-latest
@@ -78,11 +80,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          cache-on-failure: true
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Ensure vision_ocr placeholder exists
+      - name: Ensure resources exist
         run: |
           mkdir -p src-tauri/resources
           if not exist src-tauri\resources\vision_ocr (echo. > src-tauri\resources\vision_ocr)
@@ -101,20 +104,4 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target x86_64-pc-windows-msvc
-
-  publish-update-manifest:
-    needs: [build-mac, build-windows]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Generate latest.json update manifest
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        with:
-          tagName: ${{ github.ref_name }}
-          updaterJsonKeepUniversal: true
-          updaterJsonPreferNsis: true
+          includeUpdaterJson: true
