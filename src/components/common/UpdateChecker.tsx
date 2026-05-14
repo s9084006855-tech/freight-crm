@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { check } from "@tauri-apps/plugin-updater";
+import { useEffect, useState, useRef } from "react";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { motion, AnimatePresence } from "framer-motion";
 import { Download, RefreshCw } from "lucide-react";
@@ -12,13 +12,14 @@ export function UpdateChecker() {
   const [downloaded, setDownloaded] = useState(0);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
+  const updateRef = useRef<Update | null>(null);
 
   useEffect(() => {
-    // Check for update 3 seconds after app starts, silently
     const timer = setTimeout(async () => {
       try {
         const update = await check();
         if (update?.available) {
+          updateRef.current = update;
           setVersion(update.version);
           setUpdateAvailable(true);
         }
@@ -30,26 +31,26 @@ export function UpdateChecker() {
   }, []);
 
   const installUpdate = async () => {
-    if (downloading) return;
+    if (downloading || !updateRef.current) return;
     setDownloading(true);
+    setError("");
     try {
-      const update = await check();
-      if (!update?.available) return;
-
       let downloadedBytes = 0;
-      await update.downloadAndInstall((event) => {
+      await updateRef.current.downloadAndInstall((event) => {
         if (event.event === "Started") {
           setTotal(event.data.contentLength ?? 0);
         } else if (event.event === "Progress") {
           downloadedBytes += event.data.chunkLength;
           setDownloaded(downloadedBytes);
-          if (total > 0) setProgress(Math.round((downloadedBytes / total) * 100));
+          setTotal((t) => {
+            if (t > 0) setProgress(Math.round((downloadedBytes / t) * 100));
+            return t;
+          });
         } else if (event.event === "Finished") {
           setProgress(100);
         }
       });
 
-      // Relaunch into the new version
       await relaunch();
     } catch (e) {
       setDownloading(false);
