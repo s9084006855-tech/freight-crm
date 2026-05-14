@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { LayoutDashboard, Users, Upload, Settings, Truck, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Upload, Settings, Truck, LogOut, Compass } from "lucide-react";
 import { useUIStore } from "../../store/ui";
 import { useSyncStore } from "../../store/sync";
 import type { ViewName, SyncStatusColor, UserProfile } from "../../types";
@@ -87,6 +87,40 @@ export function Sidebar({ activeUser, onSwitchUser }: SidebarProps) {
 
       {/* Nav items */}
       <div className="flex-1 px-3 space-y-1">
+        {activeUser.id === "francisco" && (() => {
+          const isActive = activeView === "strategy-map";
+          return (
+            <motion.button
+              key="strategy-map"
+              initial={{ x: -10, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0, duration: 0.3 }}
+              onClick={() => setView("strategy-map")}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group relative"
+              style={{
+                background: isActive ? "rgba(245,158,11,0.12)" : "transparent",
+                border: isActive ? "1px solid rgba(245,158,11,0.3)" : "1px solid transparent",
+                boxShadow: isActive ? "0 0 16px rgba(245,158,11,0.08), inset 0 1px 0 rgba(255,255,255,0.06)" : "none",
+                color: isActive ? "#fcd34d" : "#6b6b8a",
+              }}
+              whileHover={{ scale: 1.01, transition: { duration: 0.15 } }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <span className="flex items-center gap-2.5">
+                <Compass size={15} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? "#fbbf24" : "#6b6b8a"} />
+                <span className={isActive ? "font-medium" : "font-normal"}>Strategy Map</span>
+              </span>
+              {isActive && (
+                <motion.div
+                  layoutId="active-bar"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full"
+                  style={{ background: "linear-gradient(180deg, #f59e0b, #d97706)" }}
+                  transition={{ type: "spring", stiffness: 400, damping: 35 }}
+                />
+              )}
+            </motion.button>
+          );
+        })()}
         {NAV.map((item, i) => {
           const Icon = item.icon;
           const isActive = activeView === item.view;

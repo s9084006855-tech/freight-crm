@@ -298,4 +298,4 @@ export interface EnrichmentResult {
 
 // ── UI ────────────────────────────────────────────────────────────────
 
-export type ViewName = "dashboard" | "contacts" | "contact-detail" | "import" | "settings";
+export type ViewName = "dashboard" | "contacts" | "contact-detail" | "import" | "settings" | "strategy-map";

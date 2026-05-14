@@ -10,6 +10,7 @@ import { ContactsView } from "./views/ContactsView";
 import { ContactDetailView } from "./views/ContactDetailView";
 import { ImportView } from "./views/ImportView";
 import { SettingsView } from "./views/SettingsView";
+import StrategyMap from "./features/strategy-map/StrategyMap";
 import { useUIStore } from "./store/ui";
 import { useContactsStore } from "./store/contacts";
 import { useSync } from "./hooks/useSync";
@@ -17,14 +18,16 @@ import { useGlobalKeyboard } from "./hooks/useKeyboard";
 import * as db from "./lib/db";
 import type { UserProfile } from "./types";
 
-function Views() {
+function Views({ activeUser }: { activeUser: UserProfile }) {
   const view = useUIStore((s) => s.activeView);
   switch (view) {
     case "dashboard": return <DashboardView />;
     case "contacts": return <ContactsView />;
     case "contact-detail": return <ContactDetailView />;
     case "import": return <ImportView />;
-    case "settings": return <SettingsView />;
+    case "settings": return <SettingsView activeUser={activeUser} />;
+    case "strategy-map":
+      return activeUser.id === "francisco" ? <StrategyMap /> : <DashboardView />;
     default: return <DashboardView />;
   }
 }
@@ -66,10 +69,8 @@ export default function App() {
       .catch(() => setActiveUser(null));
   }, []);
 
-  // Still checking stored user
   if (activeUser === undefined) return null;
 
-  // No user selected — show login
   if (activeUser === null) {
     return <LoginScreen onLogin={(u) => setActiveUser(u)} />;
   }
@@ -77,7 +78,7 @@ export default function App() {
   return (
     <StartupCheck>
       <AppShell activeUser={activeUser} onSwitchUser={() => setActiveUser(null)}>
-        <Views />
+        <Views activeUser={activeUser} />
         <DiagnosticsPanel />
         <QuickCallModal activeUser={activeUser} />
         <GlobalShortcuts />
