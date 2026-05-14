@@ -11,6 +11,7 @@ export function UpdateChecker() {
   const [progress, setProgress] = useState(0);
   const [downloaded, setDownloaded] = useState(0);
   const [total, setTotal] = useState(0);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     // Check for update 3 seconds after app starts, silently
@@ -50,8 +51,9 @@ export function UpdateChecker() {
 
       // Relaunch into the new version
       await relaunch();
-    } catch {
+    } catch (e) {
       setDownloading(false);
+      setError(String(e));
     }
   };
 
@@ -109,8 +111,8 @@ export function UpdateChecker() {
                 <p className="text-xs font-medium" style={{ color: "#f0f0f5" }}>
                   Update available — v{version}
                 </p>
-                <p className="text-xs" style={{ color: "#6b6b8a" }}>
-                  App will restart automatically
+                <p className="text-xs" style={{ color: error ? "#ef4444" : "#6b6b8a" }}>
+                  {error || "App will restart automatically"}
                 </p>
               </>
             )}
