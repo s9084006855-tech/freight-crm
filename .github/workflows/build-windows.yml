@@ -23,14 +23,16 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           # Try to create; if it already exists, just fetch its ID
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
-            ID=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json id -q '.id')
+            # Release exists — ensure it's published (not a draft)
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest || true
           else
             gh release create "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Freight CRM $TAG" \
-              --notes "Auto-update release"
-            ID=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json id -q '.id')
+              --notes "Auto-update release" \
+              --latest
           fi
+          ID=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json id -q '.id')
           echo "release_id=$ID" >> "$GITHUB_OUTPUT"
 
   build-mac:
