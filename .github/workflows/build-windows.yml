@@ -92,10 +92,12 @@ jobs:
       - run: npm ci --legacy-peer-deps
 
       - name: Ensure resources exist
+        shell: pwsh
         run: |
-          mkdir -p src-tauri/resources
-          if not exist src-tauri\resources\vision_ocr (echo. > src-tauri\resources\vision_ocr)
-        shell: cmd
+          New-Item -ItemType Directory -Force -Path "src-tauri/resources" | Out-Null
+          if (-not (Test-Path "src-tauri/resources/vision_ocr")) {
+            New-Item -ItemType File -Path "src-tauri/resources/vision_ocr" | Out-Null
+          }
 
       - uses: tauri-apps/tauri-action@v0
         env:
