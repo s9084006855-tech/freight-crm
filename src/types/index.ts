@@ -281,13 +281,18 @@ export interface UserProfile {
 export interface EnrichmentResult {
   contact_id: number;
   company_name: string;
-  found_on_importyeti: boolean;
+  // Web-researched profile fields
   commodities: string[];
-  suppliers: string[];
-  shipment_count?: number;
-  phone_found?: string;
-  email_found?: string;
+  role?: string;
+  shipping_lanes: string[];
+  key_contact_title?: string;
+  website?: string;
+  annual_volume_estimate?: string;
+  profile_notes?: string;
+  // Cold call script
   cold_call_script: string;
+  // Meta
+  web_searched: boolean;
   error?: string;
 }
 

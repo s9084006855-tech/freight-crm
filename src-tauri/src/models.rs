@@ -293,13 +293,15 @@ pub struct AppInfo {
 pub struct EnrichmentResult {
     pub contact_id: i64,
     pub company_name: String,
-    pub found_on_importyeti: bool,
     pub commodities: Vec<String>,
-    pub suppliers: Vec<String>,
-    pub shipment_count: Option<i32>,
-    pub phone_found: Option<String>,
-    pub email_found: Option<String>,
+    pub role: Option<String>,
+    pub shipping_lanes: Vec<String>,
+    pub key_contact_title: Option<String>,
+    pub website: Option<String>,
+    pub annual_volume_estimate: Option<String>,
+    pub profile_notes: Option<String>,
     pub cold_call_script: String,
+    pub web_searched: bool,
     pub error: Option<String>,
 }
 
