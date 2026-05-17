@@ -1,6 +1,6 @@
 [package]
 name = "freight-crm"
-version = "0.5.2"
+version = "0.6.0"
 description = "Personal CRM for produce freight brokerage"
 authors = ["Francisco Pelaez"]
 edition = "2021"
