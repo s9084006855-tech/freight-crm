@@ -6,6 +6,7 @@ import { ImportReview } from "./ImportReview";
 import { ImportHistory } from "./ImportHistory";
 import { PasteParser } from "./PasteParser";
 import { ImageOCR } from "./ImageOCR";
+import { PdfOcr } from "./PdfOcr";
 import { QuickAddForm } from "./QuickAddForm";
 import { EnrichmentPanel } from "./EnrichmentPanel";
 import { parseFile, guessMapping, applyMapping, detectSourceType, type RawRow } from "../../lib/import-parse";
@@ -16,7 +17,7 @@ import { useToast } from "../../hooks/useToast";
 import { humanError } from "../../lib/errors";
 
 type Stage = "hub" | "mapping" | "review" | "history";
-type SourceTab = "file" | "paste" | "image" | "quick" | "enrich";
+type SourceTab = "file" | "pdf" | "paste" | "image" | "quick" | "enrich";
 
 interface FileState {
   file: File;
@@ -134,6 +135,36 @@ export function ImportHub() {
     setStage("review");
   };
 
+  const handlePdfExtracted = async (contacts: ParsedContact[]) => {
+    if (contacts.length === 0) return;
+    setLoading(true);
+    try {
+      const existing = await db.getContacts({ limit: 5000, offset: 0 });
+      setExistingContacts(existing);
+      const sid = await db.createImportSession("pdf", "OCR PDF (Claude)");
+      setSessionId(sid);
+      const rows: ImportRow[] = contacts.map((parsed, i) => {
+        const classification = classifyRow(parsed, existing);
+        return {
+          row_index: i,
+          raw_data: {},
+          parsed,
+          issues: classification.issues,
+          status: classification.status,
+          duplicate_contact_id: classification.duplicate_contact_id,
+          action: classification.status === "green" ? "keep" : "discard",
+        };
+      });
+      setImportRows(rows);
+      setFileState({ file: new File([], "pdf-ocr"), rows: contacts.map(() => ({})), headers: [], mapping: {}, template: null });
+      setStage("review");
+    } catch (e) {
+      toast.error(humanError(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleOcrParsed = async (parsed: ParsedContact, confidence: number) => {
     const existing = await db.getContacts({ limit: 5000, offset: 0 });
     const classification = classifyRow(parsed, existing, confidence);
@@ -214,6 +245,7 @@ export function ImportHub() {
   // Hub
   const TABS: { id: SourceTab; label: string }[] = [
     { id: "file", label: "File" },
+    { id: "pdf", label: "PDF (bulk)" },
     { id: "paste", label: "Paste text" },
     { id: "image", label: "Image / OCR" },
     { id: "quick", label: "Quick add" },
@@ -259,6 +291,7 @@ export function ImportHub() {
               ? <p className="text-xs text-zinc-500 font-mono">Processing…</p>
               : <DropZone onFiles={handleFiles} />
           )}
+          {sourceTab === "pdf" && <PdfOcr onExtracted={handlePdfExtracted} />}
           {sourceTab === "paste" && <PasteParser onParsed={handlePasteParsed} />}
           {sourceTab === "image" && <ImageOCR onParsed={handleOcrParsed} />}
           {sourceTab === "quick" && <QuickAddForm />}

@@ -55,18 +55,35 @@ pub async fn connect_turso(
     let url = url.trim().to_string();
     let token = token.trim().to_string();
 
+    eprintln!("[connect_turso] step 1: validating inputs (url len={}, token len={})", url.len(), token.len());
+
     if url.is_empty() || token.is_empty() {
         return Err("URL and token are required".into());
     }
 
+    eprintln!("[connect_turso] step 2: building remote DB connection to {}", url);
+
     let db = libsql::Builder::new_remote(url.clone(), token.clone())
         .build()
         .await
-        .map_err(|e| format!("Failed to connect: {}", e))?;
+        .map_err(|e| {
+            eprintln!("[connect_turso] step 2 FAILED: {}", e);
+            format!("Failed to connect: {}", e)
+        })?;
 
-    let conn = db.connect().map_err(|e| e.to_string())?;
-    crate::db::init_schema_async(&conn).await.map_err(|e| e.to_string())?;
+    eprintln!("[connect_turso] step 3: opening connection");
+    let conn = db.connect().map_err(|e| {
+        eprintln!("[connect_turso] step 3 FAILED: {}", e);
+        e.to_string()
+    })?;
 
+    eprintln!("[connect_turso] step 4: initializing schema");
+    crate::db::init_schema_async(&conn).await.map_err(|e| {
+        eprintln!("[connect_turso] step 4 FAILED: {}", e);
+        e.to_string()
+    })?;
+
+    eprintln!("[connect_turso] step 5: saving credentials to local config");
     // Save credentials to local config
     {
         let mut cfg = state.local_cfg.lock().map_err(|e| e.to_string())?;
@@ -76,9 +93,11 @@ pub async fn connect_turso(
         std::fs::write(&state.local_cfg_path, json).map_err(|e| e.to_string())?;
     }
 
+    eprintln!("[connect_turso] step 6: swapping in new database");
     // Swap in the new database
     let mut guard = state.db.lock().map_err(|e| e.to_string())?;
     *guard = Some(db);
+    eprintln!("[connect_turso] DONE");
     Ok(())
 }
 

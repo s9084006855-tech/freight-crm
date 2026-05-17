@@ -3,6 +3,7 @@ import type { StartupCheckResult } from "../../types";
 import * as db from "../../lib/db";
 import { humanError } from "../../lib/errors";
 import { useUIStore } from "../../store/ui";
+import { useSyncStore } from "../../store/sync";
 
 interface Props {
   children: ReactNode;
@@ -11,11 +12,58 @@ interface Props {
 export function StartupCheck({ children }: Props) {
   const [result, setResult] = useState<StartupCheckResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showTursoForm, setShowTursoForm] = useState(false);
+  const [tursoUrl, setTursoUrl] = useState("");
+  const [tursoToken, setTursoToken] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const setView = useUIStore((s) => s.setView);
+  const refreshSync = useSyncStore((s) => s.fetchStatus);
 
   useEffect(() => {
-    db.runStartupCheck().then(setResult).catch((e) => setError(humanError(e)));
+    let cancelled = false;
+    const tryCheck = async (attemptsLeft: number) => {
+      try {
+        const r = await db.runStartupCheck();
+        if (cancelled) return;
+        // If Turso creds are saved but connection hasn't established yet,
+        // give the background auto-reconnect a moment and retry.
+        const credsOk = r.checks.find((c) => c.name === "Turso credentials")?.passed;
+        const dbOk = r.checks.find((c) => c.name === "Database connection")?.passed;
+        if (credsOk && !dbOk && attemptsLeft > 0) {
+          setTimeout(() => tryCheck(attemptsLeft - 1), 700);
+          return;
+        }
+        setResult(r);
+      } catch (e) {
+        if (!cancelled) setError(humanError(e));
+      }
+    };
+    tryCheck(6); // ~4.2s of retries
+    return () => { cancelled = true; };
   }, []);
+
+  const handleConnectTurso = async () => {
+    if (!tursoUrl.trim() || !tursoToken.trim()) {
+      setConnectError("Both URL and token are required");
+      return;
+    }
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      await db.connectTurso(tursoUrl.trim(), tursoToken.trim());
+      const fresh = await db.runStartupCheck();
+      setResult(fresh);
+      await refreshSync();
+      setShowTursoForm(false);
+      setTursoUrl("");
+      setTursoToken("");
+    } catch (e) {
+      setConnectError(humanError(e));
+    } finally {
+      setConnecting(false);
+    }
+  };
 
   if (!result && !error) {
     return (
@@ -49,7 +97,7 @@ export function StartupCheck({ children }: Props) {
       <div className="w-full max-w-md">
         <h1 className="text-sm font-semibold text-zinc-100 mb-2">Startup issues</h1>
         <p className="text-xs text-zinc-500 mb-4 font-mono">
-          Open Settings (⌘,) to enter your Turso database URL and token.
+          Configure your Turso database to continue.
         </p>
         <div className="space-y-3">
           {result!.checks.map((check) => (
@@ -68,6 +116,51 @@ export function StartupCheck({ children }: Props) {
             </div>
           ))}
         </div>
+
+        {showTursoForm && (
+          <div className="mt-4 space-y-2 p-4 border border-zinc-800 rounded bg-zinc-900/50">
+            <p className="text-xs text-zinc-400 font-mono mb-2">
+              Get your URL and token from <span className="text-zinc-300">turso.tech</span>
+            </p>
+            <input
+              autoFocus
+              value={tursoUrl}
+              onChange={(e) => setTursoUrl(e.target.value)}
+              placeholder="libsql://your-db.turso.io"
+              disabled={connecting}
+              className="w-full h-8 px-2.5 text-xs font-mono bg-zinc-800 border border-zinc-700 rounded text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+            />
+            <input
+              value={tursoToken}
+              onChange={(e) => setTursoToken(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleConnectTurso(); }}
+              type="password"
+              placeholder="eyJhbGci… (auth token)"
+              disabled={connecting}
+              className="w-full h-8 px-2.5 text-xs font-mono bg-zinc-800 border border-zinc-700 rounded text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+            />
+            {connectError && (
+              <p className="text-xs text-red-400 font-mono">{connectError}</p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleConnectTurso}
+                disabled={connecting || !tursoUrl.trim() || !tursoToken.trim()}
+                className="px-3 py-1.5 text-xs font-mono bg-indigo-700 hover:bg-indigo-600 text-white rounded disabled:opacity-50"
+              >
+                {connecting ? "Connecting…" : "Connect"}
+              </button>
+              <button
+                onClick={() => { setShowTursoForm(false); setConnectError(null); }}
+                disabled={connecting}
+                className="px-3 py-1.5 text-xs font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex gap-2">
           <button
             onClick={recheck}
@@ -75,6 +168,14 @@ export function StartupCheck({ children }: Props) {
           >
             Recheck
           </button>
+          {!showTursoForm && (
+            <button
+              onClick={() => setShowTursoForm(true)}
+              className="px-3 py-1.5 text-xs font-mono bg-indigo-700 hover:bg-indigo-600 text-white rounded"
+            >
+              Configure Turso
+            </button>
+          )}
           <button
             onClick={() => { setView("settings"); setResult({ all_passed: true, checks: [] }); }}
             className="px-3 py-1.5 text-xs font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-500 rounded"

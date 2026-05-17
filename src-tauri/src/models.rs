@@ -238,12 +238,32 @@ pub struct OcrResult {
     pub confidence: f64,
     pub engine: String,
     pub low_confidence: bool,
+    // Structured fields populated by Claude Vision extraction (may be empty for raw OCR engines)
+    #[serde(default)]
+    pub extracted: Option<ExtractedContact>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ExtractedContact {
+    pub company_name: Option<String>,
+    pub contact_name: Option<String>,
+    pub contact_title: Option<String>,
+    pub phone: Option<String>,
+    pub phones: Vec<String>,
+    pub email: Option<String>,
+    pub emails: Vec<String>,
+    pub website: Option<String>,
+    pub address: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub zip: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OcrEngineStatus {
     pub apple_vision_available: bool,
     pub tesseract_available: bool,
+    pub claude_vision_available: bool,
     pub tesseract_path: Option<String>,
     pub vision_helper_path: Option<String>,
     pub last_test_result: Option<String>,

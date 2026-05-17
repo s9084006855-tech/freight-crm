@@ -1,19 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
-
-/**
- * AFUO Strategy Map — Disney 1957 inspired business strategy visualization
- *
- * Drop this component into your CRM as a route/tab. It's self-contained:
- *   - No external dependencies beyond React
- *   - All content is static (instant, no API calls)
- *   - Styles are inline so it won't conflict with your CRM's CSS
- *   - Persists "last unit viewed" to localStorage under namespaced key
- *
- * To restrict to your profile only:
- *   Wrap the route in your CRM's auth/role gate, e.g.
- *   {currentUser.id === YOUR_USER_ID && <Route path="/strategy" element={<StrategyMap />} />}
- */
 
 const DEEP_DIVES = {
   core: {
@@ -183,51 +169,47 @@ const NODES = [
 ];
 
 const COLORS = {
-  amber:  { fill: '#FAEEDA', stroke: '#BA7517', title: '#633806', sub: '#854F0B' },
-  teal:   { fill: '#E1F5EE', stroke: '#1D9E75', title: '#085041', sub: '#0F6E56' },
-  purple: { fill: '#EEEDFE', stroke: '#7F77DD', title: '#3C3489', sub: '#534AB7' },
-  blue:   { fill: '#E6F1FB', stroke: '#378ADD', title: '#0C447C', sub: '#185FA5' },
-  green:  { fill: '#EAF3DE', stroke: '#639922', title: '#27500A', sub: '#3B6D11' },
-  coral:  { fill: '#FAECE7', stroke: '#D85A30', title: '#712B13', sub: '#993C1D' },
-  pink:   { fill: '#FBEAF0', stroke: '#D4537E', title: '#72243E', sub: '#993556' },
+  amber:  { glow: '#f59e0b', fillStart: 'rgba(245,158,11,0.15)',  fillEnd: 'rgba(245,158,11,0.05)',  stroke: 'rgba(245,158,11,0.55)',  title: '#fcd34d', sub: '#fde68a' },
+  teal:   { glow: '#10b981', fillStart: 'rgba(16,185,129,0.12)',  fillEnd: 'rgba(16,185,129,0.04)',  stroke: 'rgba(16,185,129,0.5)',   title: '#6ee7b7', sub: '#a7f3d0' },
+  purple: { glow: '#a78bfa', fillStart: 'rgba(167,139,250,0.12)', fillEnd: 'rgba(167,139,250,0.04)', stroke: 'rgba(167,139,250,0.5)',  title: '#c4b5fd', sub: '#ddd6fe' },
+  blue:   { glow: '#3b82f6', fillStart: 'rgba(59,130,246,0.12)',  fillEnd: 'rgba(59,130,246,0.04)',  stroke: 'rgba(59,130,246,0.5)',   title: '#93c5fd', sub: '#bfdbfe' },
+  green:  { glow: '#22c55e', fillStart: 'rgba(34,197,94,0.12)',   fillEnd: 'rgba(34,197,94,0.04)',   stroke: 'rgba(34,197,94,0.5)',    title: '#86efac', sub: '#bbf7d0' },
+  coral:  { glow: '#fb7185', fillStart: 'rgba(251,113,133,0.12)', fillEnd: 'rgba(251,113,133,0.04)', stroke: 'rgba(251,113,133,0.5)',  title: '#fda4af', sub: '#fecdd3' },
+  pink:   { glow: '#ec4899', fillStart: 'rgba(236,72,153,0.12)',  fillEnd: 'rgba(236,72,153,0.04)',  stroke: 'rgba(236,72,153,0.5)',   title: '#f9a8d4', sub: '#fbcfe8' },
 };
 
 const ARROWS = [
-  // Lead gen <-> Core
-  { x1: 180, y1: 180, x2: 288, y2: 340, color: '#1D9E75', label: 'qualified shippers',   lx: 218, ly: 248, anchor: 'start',  solid: true },
-  { x1: 270, y1: 345, x2: 195, y2: 195, color: '#1D9E75', label: 'lane data back',       lx: 228, ly: 282, anchor: 'start',  solid: false },
-  // CRM <-> Core
-  { x1: 500, y1: 180, x2: 395, y2: 340, color: '#534AB7', label: 'structure, automation',lx: 468, ly: 248, anchor: 'end',    solid: true },
-  { x1: 410, y1: 345, x2: 515, y2: 195, color: '#534AB7', label: 'load history, contacts',lx: 458, ly: 282, anchor: 'end',   solid: false },
-  // Lead gen <-> CRM (top horizontal)
-  { x1: 240, y1: 140, x2: 440, y2: 140, color: '#5F5E5A', label: 'leads enriched in CRM',lx: 340, ly: 132, anchor: 'middle', solid: false },
-  // Newsletter <-> Core
-  { x1: 200, y1: 600, x2: 288, y2: 440, color: '#D85A30', label: 'authority, inbound',   lx: 220, ly: 540, anchor: 'start',  solid: true },
-  { x1: 270, y1: 440, x2: 200, y2: 600, color: '#D85A30', label: 'stories, case studies',lx: 218, ly: 572, anchor: 'start',  solid: false },
-  // Content <-> Core
-  { x1: 480, y1: 600, x2: 395, y2: 440, color: '#D4537E', label: 'audience, demand',     lx: 468, ly: 540, anchor: 'end',    solid: true },
-  { x1: 410, y1: 440, x2: 480, y2: 600, color: '#D4537E', label: 'raw material to post', lx: 458, ly: 572, anchor: 'end',    solid: false },
-  // SaaS <-> Core
-  { x1: 200, y1: 390, x2: 240, y2: 390, color: '#185FA5', solid: true },
-  { x1: 240, y1: 402, x2: 200, y2: 402, color: '#185FA5', solid: false },
-  // Success <-> Core
-  { x1: 480, y1: 390, x2: 440, y2: 390, color: '#3B6D11', solid: true },
-  { x1: 440, y1: 402, x2: 480, y2: 402, color: '#3B6D11', solid: false },
+  { x1: 180, y1: 180, x2: 288, y2: 340, color: '#10b981', label: 'qualified shippers',   lx: 218, ly: 248, anchor: 'start',  solid: true },
+  { x1: 270, y1: 345, x2: 195, y2: 195, color: '#10b981', label: 'lane data back',       lx: 228, ly: 282, anchor: 'start',  solid: false },
+  { x1: 500, y1: 180, x2: 395, y2: 340, color: '#a78bfa', label: 'structure, automation',lx: 468, ly: 248, anchor: 'end',    solid: true },
+  { x1: 410, y1: 345, x2: 515, y2: 195, color: '#a78bfa', label: 'load history, contacts',lx: 458, ly: 282, anchor: 'end',   solid: false },
+  { x1: 240, y1: 140, x2: 440, y2: 140, color: '#8b8ba8', label: 'leads enriched in CRM',lx: 340, ly: 132, anchor: 'middle', solid: false },
+  { x1: 200, y1: 600, x2: 288, y2: 440, color: '#fb7185', label: 'authority, inbound',   lx: 220, ly: 540, anchor: 'start',  solid: true },
+  { x1: 270, y1: 440, x2: 200, y2: 600, color: '#fb7185', label: 'stories, case studies',lx: 218, ly: 572, anchor: 'start',  solid: false },
+  { x1: 480, y1: 600, x2: 395, y2: 440, color: '#ec4899', label: 'audience, demand',     lx: 468, ly: 540, anchor: 'end',    solid: true },
+  { x1: 410, y1: 440, x2: 480, y2: 600, color: '#ec4899', label: 'raw material to post', lx: 458, ly: 572, anchor: 'end',    solid: false },
+  { x1: 200, y1: 390, x2: 240, y2: 390, color: '#3b82f6', solid: true },
+  { x1: 240, y1: 402, x2: 200, y2: 402, color: '#3b82f6', solid: false },
+  { x1: 480, y1: 390, x2: 440, y2: 390, color: '#22c55e', solid: true },
+  { x1: 440, y1: 402, x2: 480, y2: 402, color: '#22c55e', solid: false },
 ];
 
 const ARROW_LABELS_STANDALONE = [
-  { x: 220, y: 448, anchor: 'middle', color: '#0C447C', text: 'proves the tool works' },
-  { x: 460, y: 448, anchor: 'middle', color: '#27500A', text: 'retains and refers' },
-  { x: 340, y: 592, anchor: 'middle', color: '#444441', text: 'newsletter promotes social posts' },
+  { x: 220, y: 448, anchor: 'middle', color: '#93c5fd', text: 'proves the tool works' },
+  { x: 460, y: 448, anchor: 'middle', color: '#86efac', text: 'retains and refers' },
+  { x: 340, y: 592, anchor: 'middle', color: '#8b8ba8', text: 'newsletter promotes social posts' },
 ];
 
 const STORAGE_KEY = 'afuo_strategy_last_unit';
+const ORDER: DeepDiveKey[] = ['core', 'leadgen', 'crm', 'saas', 'success', 'newsletter', 'content'];
 
 type DeepDiveKey = keyof typeof DEEP_DIVES;
 type ColorKey = keyof typeof COLORS;
 
 export default function StrategyMap() {
   const [activeUnit, setActiveUnit] = useState<DeepDiveKey | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<DeepDiveKey | null>(null);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     try {
@@ -236,32 +218,56 @@ export default function StrategyMap() {
     } catch (_) {}
   }, []);
 
-  const openUnit = (id: DeepDiveKey) => {
+  const jumpToUnit = (id: DeepDiveKey) => {
     setActiveUnit(id);
     try { localStorage.setItem(STORAGE_KEY, id); } catch (_) {}
+    const el = sectionRefs.current[id];
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const closeUnit = () => setActiveUnit(null);
+  const colorForNode = (id: string): typeof COLORS[ColorKey] => {
+    const node = NODES.find((n) => n.id === id);
+    return COLORS[(node?.color ?? 'amber') as ColorKey];
+  };
 
   return (
     <div style={styles.page}>
       <header style={styles.header}>
         <div>
           <h1 style={styles.h1}>AFUO freight empire — strategy map</h1>
-          <p style={styles.sub}>Disney 1957 model · every unit feeds every other unit · click any node for the deep dive</p>
+          <p style={styles.sub}>Disney 1957 model · every unit feeds every other unit · click any node to jump to its deep dive</p>
         </div>
         <div style={styles.legend}>
-          <div style={styles.legendRow}><span style={{...styles.legendLine, borderTopStyle: 'solid'}} />primary value flow</div>
-          <div style={styles.legendRow}><span style={{...styles.legendLine, borderTopStyle: 'dashed'}} />feedback loop</div>
+          <div style={styles.legendRow}><span style={{...styles.legendLine, borderTopStyle: 'solid', borderTopColor: '#a1a1aa'}} />primary value flow</div>
+          <div style={styles.legendRow}><span style={{...styles.legendLine, borderTopStyle: 'dashed', borderTopColor: '#71717a'}} />feedback loop</div>
         </div>
       </header>
 
       <div style={styles.canvas}>
-        <svg width="100%" viewBox="0 0 680 720" role="img" aria-label="AFUO freight empire strategy map">
+        <svg width="100%" viewBox="0 0 680 720" role="img" aria-label="AFUO freight empire strategy map" style={{ display: 'block' }}>
           <defs>
             <marker id="afuoArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
               <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </marker>
+
+            <filter id="nodeShadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="6" stdDeviation="8" floodColor="#000000" floodOpacity="0.55" />
+            </filter>
+
+            <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+
+            {Object.entries(COLORS).map(([k, c]) => (
+              <linearGradient key={k} id={`grad-${k}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor={c.fillStart} />
+                <stop offset="100%" stopColor={c.fillEnd} />
+              </linearGradient>
+            ))}
           </defs>
 
           <text x="340" y="28" textAnchor="middle" style={styles.svgTitle}>AFUO freight empire</text>
@@ -272,12 +278,13 @@ export default function StrategyMap() {
               <line
                 x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2}
                 stroke={a.color}
-                strokeWidth={a.solid ? 1 : 0.7}
-                strokeDasharray={a.solid ? undefined : '3 3'}
+                strokeWidth={a.solid ? 1.2 : 0.9}
+                strokeOpacity={0.7}
+                strokeDasharray={a.solid ? undefined : '4 4'}
                 markerEnd="url(#afuoArrow)"
               />
               {a.label && (
-                <text x={a.lx} y={a.ly} textAnchor={a.anchor as "start" | "middle" | "end"} fill={a.color} style={styles.arrowLabel}>
+                <text x={a.lx} y={a.ly} textAnchor={a.anchor as "start" | "middle" | "end"} fill={a.color} fillOpacity={0.85} style={styles.arrowLabel}>
                   {a.label}
                 </text>
               )}
@@ -293,14 +300,41 @@ export default function StrategyMap() {
           {NODES.map((n) => {
             const c = COLORS[n.color as ColorKey];
             const cx = n.x + n.w / 2;
+            const isHovered = hoveredNode === n.id;
+            const lift = isHovered ? -4 : 0;
             return (
-              <g key={n.id} onClick={() => openUnit(n.id as DeepDiveKey)} style={{ cursor: 'pointer' }}>
+              <g
+                key={n.id}
+                onClick={() => jumpToUnit(n.id as DeepDiveKey)}
+                onMouseEnter={() => setHoveredNode(n.id as DeepDiveKey)}
+                onMouseLeave={() => setHoveredNode(null)}
+                style={{ cursor: 'pointer', transition: 'transform 220ms cubic-bezier(0.25,0.46,0.45,0.94)', transform: `translateY(${lift}px)` }}
+                filter="url(#nodeShadow)"
+              >
                 <rect
                   x={n.x} y={n.y} width={n.w} height={n.h}
-                  rx={n.center ? 14 : 12}
-                  fill={c.fill}
+                  rx={n.center ? 18 : 14}
+                  fill={`url(#grad-${n.color})`}
                   stroke={c.stroke}
-                  strokeWidth={n.center ? 1 : 0.5}
+                  strokeWidth={n.center ? 1.4 : 1}
+                  style={{ transition: 'all 220ms ease' }}
+                />
+                {isHovered && (
+                  <rect
+                    x={n.x} y={n.y} width={n.w} height={n.h}
+                    rx={n.center ? 18 : 14}
+                    fill="none"
+                    stroke={c.glow}
+                    strokeWidth={2}
+                    opacity={0.85}
+                    style={{ filter: `drop-shadow(0 0 12px ${c.glow})` }}
+                  />
+                )}
+                {/* subtle top highlight for 3D depth */}
+                <rect
+                  x={n.x + 2} y={n.y + 2} width={n.w - 4} height={2}
+                  rx={1}
+                  fill="rgba(255,255,255,0.08)"
                 />
                 <text x={cx} y={n.y + (n.center ? 32 : 28)} textAnchor="middle" fill={c.title} style={styles.nodeTitle}>
                   {n.label}
@@ -324,54 +358,64 @@ export default function StrategyMap() {
         </svg>
       </div>
 
-      {activeUnit && (
-        <DeepDiveDrawer unit={DEEP_DIVES[activeUnit as DeepDiveKey]} unitId={activeUnit} onClose={closeUnit} />
-      )}
+      <div style={styles.divider}>
+        <span style={styles.dividerLine} />
+        <span style={styles.dividerLabel}>Deep dives</span>
+        <span style={styles.dividerLine} />
+      </div>
+
+      <div style={styles.sections}>
+        {ORDER.map((key) => {
+          const unit = DEEP_DIVES[key];
+          const c = colorForNode(key);
+          const isActive = activeUnit === key;
+          return (
+            <div
+              key={key}
+              ref={(el) => { sectionRefs.current[key] = el; }}
+              style={{
+                ...styles.unitCard,
+                borderColor: isActive ? c.stroke : 'rgba(255,255,255,0.06)',
+                boxShadow: isActive
+                  ? `0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px ${c.stroke}, 0 0 32px ${c.glow}25`
+                  : '0 8px 24px rgba(0,0,0,0.35)',
+              }}
+              onClick={() => setActiveUnit(key)}
+            >
+              <div style={{...styles.unitAccent, background: `linear-gradient(180deg, ${c.glow}, transparent)` }} />
+              <div style={styles.unitHeader}>
+                <div style={{...styles.unitDot, background: c.glow, boxShadow: `0 0 16px ${c.glow}88`}} />
+                <div>
+                  <div style={{...styles.unitEyebrow, color: c.title}}>{key}</div>
+                  <h2 style={styles.unitTitle}>{unit.title}</h2>
+                  <div style={styles.unitSubtitle}>{unit.subtitle}</div>
+                </div>
+              </div>
+              <div style={styles.unitBody}>
+                {unit.sections.map((s, i) => (
+                  <section key={i} style={styles.section}>
+                    <h3 style={{...styles.sectionHeading, color: c.title}}>{s.heading}</h3>
+                    <p style={styles.sectionBody}>{s.body}</p>
+                  </section>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
-  );
-}
-
-type UnitData = typeof DEEP_DIVES[DeepDiveKey];
-
-function DeepDiveDrawer({ unit, unitId, onClose }: { unit: UnitData; unitId: string; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return (
-    <>
-      <div style={styles.scrim} onClick={onClose} />
-      <aside style={styles.drawer} role="dialog" aria-label={unit.title}>
-        <div style={styles.drawerHeader}>
-          <div>
-            <div style={styles.drawerEyebrow}>{unitId}</div>
-            <h2 style={styles.drawerTitle}>{unit.title}</h2>
-            <div style={styles.drawerSubtitle}>{unit.subtitle}</div>
-          </div>
-          <button onClick={onClose} style={styles.closeBtn} aria-label="Close">×</button>
-        </div>
-        <div style={styles.drawerBody}>
-          {(unit.sections as { heading: string; body: string }[]).map((s, i) => (
-            <section key={i} style={styles.section}>
-              <h3 style={styles.sectionHeading}>{s.heading}</h3>
-              <p style={styles.sectionBody}>{s.body}</p>
-            </section>
-          ))}
-        </div>
-      </aside>
-    </>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-    color: '#1a1a1a',
-    padding: '24px',
-    maxWidth: '1100px',
+    fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+    color: '#f0f0f5',
+    padding: '32px 40px 80px',
+    maxWidth: '1180px',
     margin: '0 auto',
+    height: '100%',
+    overflowY: 'auto',
   },
   header: {
     display: 'flex',
@@ -381,52 +425,96 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
     gap: '16px',
   },
-  h1: { margin: 0, fontSize: '22px', fontWeight: 500 },
-  sub: { margin: '6px 0 0', fontSize: '13px', color: '#5F5E5A' },
-  legend: { fontSize: '12px', color: '#5F5E5A' },
+  h1: {
+    margin: 0,
+    fontSize: '22px',
+    fontWeight: 600,
+    background: 'linear-gradient(135deg, #f0f0f5, #8b8ba8)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+  },
+  sub: { margin: '6px 0 0', fontSize: '13px', color: '#8b8ba8' },
+  legend: { fontSize: '11px', color: '#8b8ba8' },
   legendRow: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' },
-  legendLine: { display: 'inline-block', width: '24px', borderTopWidth: '1px', borderTopColor: '#5F5E5A' },
+  legendLine: { display: 'inline-block', width: '24px', borderTopWidth: '1px' },
   canvas: {
-    background: '#fff',
-    border: '1px solid rgba(0,0,0,0.08)',
-    borderRadius: '12px',
-    padding: '16px',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01))',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '20px',
+    padding: '20px',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
   },
-  svgTitle: { fontSize: '14px', fontWeight: 500, fill: '#1a1a1a' },
-  svgSub: { fontSize: '12px', fill: '#5F5E5A' },
-  nodeTitle: { fontSize: '14px', fontWeight: 500 },
-  nodeSub: { fontSize: '12px' },
-  arrowLabel: { fontSize: '12px' },
-  scrim: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 40,
+  svgTitle: { fontSize: '14px', fontWeight: 600, fill: '#f0f0f5' },
+  svgSub: { fontSize: '11px', fill: '#8b8ba8' },
+  nodeTitle: { fontSize: '13px', fontWeight: 600 },
+  nodeSub: { fontSize: '11px', fontWeight: 400 },
+  arrowLabel: { fontSize: '10px', fontWeight: 500 },
+  divider: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    margin: '40px 0 24px',
   },
-  drawer: {
-    position: 'fixed', top: 0, right: 0, bottom: 0,
-    width: 'min(560px, 92vw)',
-    background: '#fff',
-    boxShadow: '-8px 0 32px rgba(0,0,0,0.18)',
-    zIndex: 50,
+  dividerLine: { flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' },
+  dividerLabel: {
+    fontSize: '11px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.15em',
+    color: '#8b8ba8',
+    fontWeight: 600,
+  },
+  sections: {
     display: 'flex',
     flexDirection: 'column',
+    gap: '20px',
   },
-  drawerHeader: {
+  unitCard: {
+    position: 'relative',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.005))',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '16px',
+    padding: '24px 28px 28px',
+    overflow: 'hidden',
+    transition: 'all 220ms cubic-bezier(0.25,0.46,0.45,0.94)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    cursor: 'pointer',
+  },
+  unitAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '3px',
+    height: '120px',
+    opacity: 0.7,
+  },
+  unitHeader: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
-    padding: '24px 24px 16px',
-    borderBottom: '1px solid rgba(0,0,0,0.08)',
+    gap: '14px',
+    marginBottom: '20px',
   },
-  drawerEyebrow: {
-    fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888780', marginBottom: '4px',
+  unitDot: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    marginTop: '8px',
+    flexShrink: 0,
   },
-  drawerTitle: { margin: 0, fontSize: '20px', fontWeight: 500 },
-  drawerSubtitle: { fontSize: '13px', color: '#5F5E5A', marginTop: '4px' },
-  closeBtn: {
-    background: 'transparent', border: 'none', fontSize: '24px', cursor: 'pointer',
-    color: '#5F5E5A', padding: '4px 8px', lineHeight: 1,
+  unitEyebrow: {
+    fontSize: '10px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.15em',
+    fontWeight: 600,
+    marginBottom: '4px',
+    opacity: 0.85,
   },
-  drawerBody: { padding: '8px 24px 32px', overflowY: 'auto', flex: 1 },
-  section: { margin: '20px 0' },
-  sectionHeading: { fontSize: '15px', fontWeight: 500, margin: '0 0 8px' },
-  sectionBody: { fontSize: '14px', lineHeight: 1.7, color: '#2C2C2A', margin: 0 },
+  unitTitle: { margin: 0, fontSize: '18px', fontWeight: 600, color: '#f0f0f5' },
+  unitSubtitle: { fontSize: '13px', color: '#8b8ba8', marginTop: '2px' },
+  unitBody: { paddingLeft: '24px' },
+  section: { margin: '16px 0' },
+  sectionHeading: { fontSize: '13px', fontWeight: 600, margin: '0 0 6px' },
+  sectionBody: { fontSize: '13px', lineHeight: 1.7, color: '#cfcfd8', margin: 0 },
 };

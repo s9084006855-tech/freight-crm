@@ -4,10 +4,12 @@ import * as db from "../lib/db";
 import { useToast } from "../hooks/useToast";
 import { humanError } from "../lib/errors";
 import { USERS, getProfilePasswords, setProfilePassword } from "../components/common/LoginScreen";
+import { useSyncStore } from "../store/sync";
 import type { UserProfile } from "../types";
 
 export function SettingsView({ activeUser }: { activeUser: UserProfile }) {
   const toast = useToast();
+  const refreshSync = useSyncStore((s) => s.fetchStatus);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [apiKeyMasked, setApiKeyMasked] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -50,6 +52,7 @@ export function SettingsView({ activeUser }: { activeUser: UserProfile }) {
       await db.connectTurso(tursoUrl.trim(), tursoToken.trim());
       const fresh = await db.getSettings();
       setSettings(fresh);
+      await refreshSync();
       toast.success("Connected to Turso — database ready");
     } catch (e) {
       toast.error(humanError(e));
@@ -193,7 +196,7 @@ export function SettingsView({ activeUser }: { activeUser: UserProfile }) {
         <section>
           <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Anthropic API key</h2>
           <p className="text-xs text-zinc-600 mb-3">
-            Stored in macOS Keychain. Used for "Enhance with Claude" in paste import (~$0.001/request).
+            Stored in your OS credential vault (macOS Keychain / Windows Credential Manager). Used for Claude Vision OCR (image and PDF imports) and "Enhance with Claude" paste enrichment.
           </p>
           {apiKeyMasked ? (
             <div className="flex items-center gap-3">

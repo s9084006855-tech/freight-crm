@@ -10,6 +10,7 @@ import type {
   DashboardStats,
   EnrichmentResult,
   ErrorEntry,
+  ExtractedContact,
   FollowUpItem,
   ImportAction,
   ImportResult,
@@ -96,6 +97,12 @@ export const findMatchingTemplate = (headers: string[]) =>
 
 export const ocrImage = (imagePath: string) =>
   invoke<OcrResult>("ocr_image", { imagePath });
+
+export const ocrImageClaude = (imageBase64: string, mediaType: string) =>
+  invoke<OcrResult>("ocr_image_claude", { imageBase64, mediaType });
+
+export const ocrPdfClaude = (pdfBase64: string, chunkSize?: number) =>
+  invoke<ExtractedContact[]>("ocr_pdf_claude", { pdfBase64, chunkSize });
 
 export const testOcrEngines = () =>
   invoke<OcrEngineStatus>("test_ocr_engines");

@@ -57,12 +57,34 @@ pub fn run() {
             let cfg_path = app_data.join("local_config.json");
             let local_cfg = load_or_create_local_config(&cfg_path);
 
+            let saved_url = local_cfg.turso_url.clone();
+            let saved_token = local_cfg.turso_token.clone();
+            let needs_reconnect = !saved_url.is_empty() && !saved_token.is_empty();
+
             let state = AppState {
                 db: Mutex::new(None),
                 local_cfg: Mutex::new(local_cfg),
                 local_cfg_path: cfg_path,
             };
             app.manage(state);
+
+            if needs_reconnect {
+                let app_handle = app.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    eprintln!("[startup] auto-reconnecting to Turso at {}", saved_url);
+                    match libsql::Builder::new_remote(saved_url, saved_token)
+                        .build()
+                        .await
+                    {
+                        Ok(db) => match install_db(&app_handle, db) {
+                            Ok(_) => eprintln!("[startup] auto-reconnect successful"),
+                            Err(e) => eprintln!("[startup] failed to install db: {}", e),
+                        },
+                        Err(e) => eprintln!("[startup] auto-reconnect failed: {}", e),
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -86,6 +108,8 @@ pub fn run() {
             commands::import::delete_mapping_template,
             commands::import::find_matching_template,
             commands::ocr::ocr_image,
+            commands::ocr::ocr_image_claude,
+            commands::ocr::ocr_pdf_claude,
             commands::ocr::test_ocr_engines,
             commands::sync::get_sync_status,
             commands::diagnostics::get_error_log,
@@ -109,6 +133,13 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn install_db(handle: &tauri::AppHandle, db: libsql::Database) -> Result<(), String> {
+    let state = handle.state::<AppState>();
+    let mut guard = state.db.lock().map_err(|e| e.to_string())?;
+    *guard = Some(db);
+    Ok(())
 }
 
 fn load_or_create_local_config(path: &PathBuf) -> LocalConfig {

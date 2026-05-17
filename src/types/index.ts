@@ -202,16 +202,33 @@ export interface MappingTemplate {
 
 // ── OCR ───────────────────────────────────────────────────────────────
 
+export interface ExtractedContact {
+  company_name?: string;
+  contact_name?: string;
+  contact_title?: string;
+  phone?: string;
+  phones: string[];
+  email?: string;
+  emails: string[];
+  website?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+}
+
 export interface OcrResult {
   text: string;
   confidence: number;
   engine: string;
   low_confidence: boolean;
+  extracted?: ExtractedContact;
 }
 
 export interface OcrEngineStatus {
   apple_vision_available: boolean;
   tesseract_available: boolean;
+  claude_vision_available: boolean;
   tesseract_path?: string;
   vision_helper_path?: string;
   last_test_result?: string;

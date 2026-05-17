@@ -34,13 +34,16 @@ pub async fn run_startup_check(
     // 3. Schema
     let schema_ok = if connected {
         match state.conn() {
-            Ok(conn) => conn.query(
-                "SELECT COUNT(*) FROM schema_migrations WHERE version >= 1", ()
-            ).await.ok()
-                .and_then(|mut r| futures::executor::block_on(r.next()).ok().flatten())
-                .and_then(|row| row.get::<i64>(0).ok())
-                .map(|n| n > 0)
-                .unwrap_or(false),
+            Ok(conn) => match conn
+                .query("SELECT COUNT(*) FROM schema_migrations WHERE version >= 1", ())
+                .await
+            {
+                Ok(mut rows) => match rows.next().await {
+                    Ok(Some(row)) => row.get::<i64>(0).map(|n| n > 0).unwrap_or(false),
+                    _ => false,
+                },
+                Err(_) => false,
+            },
             Err(_) => false,
         }
     } else { false };
@@ -55,10 +58,11 @@ pub async fn run_startup_check(
     // 4. OCR
     let (tess_ok, tess_msg) = match crate::commands::ocr::test_ocr_engines(app) {
         Ok(ref s) => (
-            s.tesseract_available || s.apple_vision_available,
+            s.tesseract_available || s.apple_vision_available || s.claude_vision_available,
             if s.apple_vision_available { "Apple Vision OCR: available".into() }
+            else if s.claude_vision_available { "Claude Vision: available (uses Anthropic API)".into() }
             else if s.tesseract_available { "Bundled Tesseract: available".into() }
-            else { "No OCR engine — image import disabled".into() },
+            else { "No OCR engine — add Anthropic API key in Settings or bundle Tesseract".into() },
         ),
         Err(ref e) => (false, format!("OCR check failed: {}", e)),
     };
